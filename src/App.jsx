@@ -21,6 +21,7 @@ import WorkshopHistoryPage from './pages/WorkshopHistoryPage'
 import WorkshopApprovalPage from './pages/WorkshopApprovalPage'
 import TrialBalancePage from './pages/TrialBalancePage'
 import ExternalExpensePage from './pages/ExternalExpensePage'
+import PLReportPage from './pages/PLReportPage'
 import NotificationsBell from './components/NotificationsBell'
 import { NAV_GROUPS } from './lib/constants'
 import { hasPagePermission } from './lib/permissions'
@@ -46,6 +47,7 @@ const IMPLEMENTED_PAGES = {
   'workshop-approve': WorkshopApprovalPage,
   'trial-balance': TrialBalancePage,
   'external-expenses': ExternalExpensePage,
+  'pl-report': PLReportPage,
 }
 
 function ComingSoon({ label }) {

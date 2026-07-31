@@ -73,6 +73,8 @@ export const NAV_GROUPS = [
     label: 'กระทบยอดบัญชี',
     items: [
       { key: 'exec-dashboard', label: 'แดชบอร์ดฝ่ายบริหาร', icon: 'chart' },
+      { key: 'exec-report', label: 'รายงานผู้บริหาร', icon: 'file' },
+      { key: 'pl-report', label: 'รายงาน P&L (ประมาณการกำไรขาดทุน)', icon: 'file' },
       { key: 'tax-report', label: 'รายงานสำหรับกรมสรรพากร', icon: 'file' },
       { key: 'budgets', label: 'ตั้งงบประมาณ', icon: 'cash' },
       { key: 'accounts', label: 'จัดการรหัสบัญชี', icon: 'list' },
