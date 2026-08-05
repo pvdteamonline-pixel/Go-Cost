@@ -26,7 +26,7 @@ function buildExcelSheet(data, year) {
   return [{ name: `รายงานผู้บริหาร ${year}`, rows }]
 }
 
-export default function ExecutiveReportPage() {
+export default function ExecutiveReportPage({ onNavigate }) {
   const { currentUser } = useAuth()
   const [year, setYear] = useState(new Date().getFullYear())
   const [data, setData] = useState(null)
@@ -76,87 +76,145 @@ export default function ExecutiveReportPage() {
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
       {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
 
-      {!loading && data && (
-        <div className="glass p-4 overflow-x-auto">
-          <table className="w-full text-xs border-collapse min-w-[1400px]">
-            <thead>
-              <tr className="border-b-2 border-black/15 text-ink-500">
-                <th className="text-left py-2 pr-2 w-24">รหัสบัญชี</th>
-                <th className="text-left py-2 pr-2 w-52">ชื่อบัญชี</th>
-                {MONTH_SHORT.map((m) => <th key={m} className="text-right py-2 px-2 w-24">{m}</th>)}
-                <th className="text-right py-2 pl-2 w-28">รวม</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="bg-sage-pale/40 font-medium">
-                <td className="py-1.5" colSpan={2}>รายได้รวม</td>
-                {data.revenueMonthly.map((v, i) => (
-                  <td key={i} className="text-right py-1.5 px-2 text-sage tabular-nums">{formatBaht(v)}</td>
-                ))}
-                <td className="text-right py-1.5 pl-2 text-sage tabular-nums">{formatBaht(data.revenueTotal)}</td>
-              </tr>
+      {!loading && data && (() => {
+        // คำนวณ grand total ของทุกกลุ่ม
+        const groupGrandMonthly = Array(12).fill(0)
+        data.groups.forEach((g) => (g.monthly ?? []).forEach((v, i) => { groupGrandMonthly[i] += Number(v ?? 0) }))
+        const groupGrandTotal = data.groups.reduce((s, g) => s + Number(g.total ?? 0), 0)
 
-              {data.groups.map((g) => (
-                <React.Fragment key={g.groupId}>
-                  <tr className="bg-ink-100/60">
-                    <td colSpan={2} className="py-2 px-1">
-                      <span className="doc-badge mr-2">{g.code}</span>
-                      <span className="text-ink-900 font-medium">{g.name}</span>
-                      {g.pctOfRevenueTotal !== null && (
-                        <span className="text-ink-400 ml-2">({g.pctOfRevenueTotal}% ของรายได้)</span>
-                      )}
-                    </td>
-                    {g.pctOfRevenueMonthly.map((p, i) => (
-                      <td key={i} className="text-right py-2 px-2 text-ink-400 tabular-nums">{p !== null ? `${p}%` : ''}</td>
-                    ))}
-                    <td></td>
-                  </tr>
-                  {g.accounts.map((a) => (
-                    <tr key={a.code} className="border-b border-black/5 hover:bg-black/[0.015]">
-                      <td className="py-1 pr-2 pl-4 text-ocean font-mono">{a.code}</td>
-                      <td className="py-1 pr-2 text-ink-700">{a.name}</td>
-                      {a.monthly.map((v, i) => (
-                        <td key={i} className="text-right py-1 px-2 text-ink-800 tabular-nums">{v !== 0 ? formatBaht(v) : ''}</td>
-                      ))}
-                      <td className="text-right py-1 pl-2 text-ink-900 font-medium tabular-nums">{formatBaht(a.total)}</td>
-                    </tr>
-                  ))}
-                  <tr className="bg-white/40 border-b border-black/10">
-                    <td colSpan={2} className="py-1 pl-4 text-ink-400 italic">รวม {g.name}</td>
-                    {g.monthly.map((v, i) => (
-                      <td key={i} className="text-right py-1 px-2 text-ink-600 font-medium tabular-nums">{formatBaht(v)}</td>
-                    ))}
-                    <td className="text-right py-1 pl-2 text-ink-600 font-medium tabular-nums">{formatBaht(g.total)}</td>
-                  </tr>
-                </React.Fragment>
-              ))}
+        // ungrouped total
+        const ungroupedTotal = (data.ungroupedAccounts ?? []).reduce((s, a) => s + Number(a.total ?? 0), 0)
+        const ungroupedMonthly = Array(12).fill(0)
+        ;(data.ungroupedAccounts ?? []).forEach((a) => (a.monthly ?? []).forEach((v, i) => { ungroupedMonthly[i] += Number(v ?? 0) }))
 
-              {data.ungroupedAccounts.length > 0 && (
-                <>
-                  <tr className="bg-gold-pale/40">
-                    <td colSpan={2} className="py-2 px-1 text-gold-dark font-medium">⚠️ รหัสบัญชีที่ยังไม่มีกลุ่ม</td>
-                    <td colSpan={13}></td>
+        return (
+          <>
+            {/* Warning Banner สำหรับ ungrouped */}
+            {(data.ungroupedAccounts ?? []).length > 0 && (
+              <div className="bg-amber-50 border border-amber-300/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-start gap-2">
+                  <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
+                  <div>
+                    <p className="text-amber-800 font-medium text-sm">
+                      มีรหัสบัญชีที่ยังไม่ได้จัดกลุ่ม {(data.ungroupedAccounts ?? []).length} รหัส — ยอดรวม {formatBaht(ungroupedTotal)} บาท
+                    </p>
+                    <p className="text-amber-600 text-xs mt-0.5">
+                      รหัสเหล่านี้ถูกแยกออกจากรายงาน กรุณาจัดกลุ่มก่อนเพื่อให้ยอดรวมถูกต้องสมบูรณ์
+                    </p>
+                  </div>
+                </div>
+                {onNavigate && (
+                  <button
+                    onClick={() => onNavigate('account-groups')}
+                    className="btn-primary text-xs px-3 py-1.5 shrink-0"
+                  >
+                    📂 ไปจัดกลุ่มรหัสบัญชี
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="glass p-4 overflow-x-auto">
+              <table className="w-full text-xs border-collapse min-w-[1400px]">
+                <thead>
+                  <tr className="border-b-2 border-black/15 text-ink-500">
+                    <th className="text-left py-2 pr-2 w-24">รหัสบัญชี</th>
+                    <th className="text-left py-2 pr-2 w-52">ชื่อบัญชี</th>
+                    {MONTH_SHORT.map((m) => <th key={m} className="text-right py-2 px-2 w-24">{m}</th>)}
+                    <th className="text-right py-2 pl-2 w-28">รวม</th>
                   </tr>
-                  {data.ungroupedAccounts.map((a) => (
-                    <tr key={a.code} className="border-b border-black/5">
-                      <td className="py-1 pr-2 pl-4 text-ocean font-mono">{a.code}</td>
-                      <td className="py-1 pr-2 text-ink-700">{a.name}</td>
-                      {a.monthly.map((v, i) => (
-                        <td key={i} className="text-right py-1 px-2 text-ink-800 tabular-nums">{v !== 0 ? formatBaht(v) : ''}</td>
+                </thead>
+                <tbody>
+                  {/* ─── รายได้รวม ─── */}
+                  <tr className="bg-sage-pale/40 font-medium">
+                    <td className="py-1.5" colSpan={2}>รายได้รวม</td>
+                    {data.revenueMonthly.map((v, i) => (
+                      <td key={i} className="text-right py-1.5 px-2 text-sage tabular-nums">{formatBaht(v)}</td>
+                    ))}
+                    <td className="text-right py-1.5 pl-2 text-sage tabular-nums">{formatBaht(data.revenueTotal)}</td>
+                  </tr>
+
+                  {/* ─── กลุ่มรหัสบัญชี ─── */}
+                  {data.groups.map((g, gIdx) => (
+                    <React.Fragment key={g.groupId}>
+                      <tr className="bg-ink-100/60">
+                        <td colSpan={2} className="py-2 px-1">
+                          <span className="text-[10px] text-ink-400 mr-1">กลุ่ม {gIdx + 1}.</span>
+                          <span className="doc-badge mr-2">{g.code}</span>
+                          <span className="text-ink-900 font-medium">{g.name}</span>
+                          {g.pctOfRevenueTotal !== null && (
+                            <span className="text-ink-400 ml-2">({g.pctOfRevenueTotal}% ของรายได้)</span>
+                          )}
+                        </td>
+                        {g.pctOfRevenueMonthly.map((p, i) => (
+                          <td key={i} className="text-right py-2 px-2 text-ink-400 tabular-nums">{p !== null ? `${p}%` : ''}</td>
+                        ))}
+                        <td></td>
+                      </tr>
+                      {g.accounts.map((a) => (
+                        <tr key={a.code} className="border-b border-black/5 hover:bg-black/[0.015]">
+                          <td className="py-1 pr-2 pl-4 text-ocean font-mono">{a.code}</td>
+                          <td className="py-1 pr-2 text-ink-700">{a.name}</td>
+                          {a.monthly.map((v, i) => (
+                            <td key={i} className="text-right py-1 px-2 text-ink-800 tabular-nums">{v !== 0 ? formatBaht(v) : ''}</td>
+                          ))}
+                          <td className="text-right py-1 pl-2 text-ink-900 font-medium tabular-nums">{formatBaht(a.total)}</td>
+                        </tr>
                       ))}
-                      <td className="text-right py-1 pl-2 text-ink-900 font-medium tabular-nums">{formatBaht(a.total)}</td>
-                    </tr>
+                      <tr className="bg-white/40 border-b border-black/10">
+                        <td colSpan={2} className="py-1 pl-4 text-ink-400 italic">รวม {g.name}</td>
+                        {g.monthly.map((v, i) => (
+                          <td key={i} className="text-right py-1 px-2 text-ink-600 font-medium tabular-nums">{formatBaht(v)}</td>
+                        ))}
+                        <td className="text-right py-1 pl-2 text-ink-600 font-medium tabular-nums">{formatBaht(g.total)}</td>
+                      </tr>
+                    </React.Fragment>
                   ))}
-                </>
-              )}
-            </tbody>
-          </table>
-          <p className="text-ink-400 text-xs mt-3">
-            % คำนวณจากยอดของแต่ละกลุ่ม เทียบกับ "รายได้รวม" (รหัสบัญชีที่ตั้งหมวดหมู่เป็น "รายได้ (Revenue)") —
-            รหัสที่ยังไม่ได้จัดกลุ่มจะไม่ถูกนับใน % ไปหน้า "กลุ่มรหัสบัญชี" เพื่อจัดกลุ่มให้ครบ
-          </p>
-        </div>
-      )}
+
+                  {/* ─── รวมทุกกลุ่ม (Grand Total) ─── */}
+                  {data.groups.length > 0 && (
+                    <tr className="border-t-2 border-ocean/30 bg-ocean/5">
+                      <td colSpan={2} className="py-2 px-2 font-bold text-ocean text-xs">
+                        รวมทั้งหมด {data.groups.length} กลุ่ม (ยอดรวมรายจ่าย)
+                      </td>
+                      {groupGrandMonthly.map((v, i) => (
+                        <td key={i} className="text-right py-2 px-2 font-bold text-ocean tabular-nums">{v !== 0 ? formatBaht(v) : ''}</td>
+                      ))}
+                      <td className="text-right py-2 pl-2 font-bold text-ocean tabular-nums">{formatBaht(groupGrandTotal)}</td>
+                    </tr>
+                  )}
+
+                  {/* ─── กำไร(ขาดทุน)สุทธิ ─── */}
+                  {data.groups.length > 0 && (() => {
+                    const netMonthly = (data.revenueMonthly ?? Array(12).fill(0)).map((r, i) => Number(r) - groupGrandMonthly[i])
+                    const netTotal = Number(data.revenueTotal ?? 0) - groupGrandTotal
+                    return (
+                      <tr className={`border-t-2 ${netTotal >= 0 ? 'border-sage/40 bg-sage-pale/30' : 'border-rose/40 bg-rose-pale/30'}`}>
+                        <td colSpan={2} className={`py-2 px-2 font-bold text-sm ${netTotal >= 0 ? 'text-sage' : 'text-rose'}`}>
+                          {netTotal >= 0 ? '▲ กำไร(ขาดทุน)สุทธิประมาณการ' : '▼ กำไร(ขาดทุน)สุทธิประมาณการ'}
+                        </td>
+                        {netMonthly.map((v, i) => (
+                          <td key={i} className={`text-right py-2 px-2 font-bold tabular-nums ${v >= 0 ? 'text-sage' : 'text-rose'}`}>
+                            {v !== 0 ? formatBaht(v) : ''}
+                          </td>
+                        ))}
+                        <td className={`text-right py-2 pl-2 font-bold tabular-nums ${netTotal >= 0 ? 'text-sage' : 'text-rose'}`}>
+                          {formatBaht(netTotal)}
+                        </td>
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+              <p className="text-ink-400 text-xs mt-3">
+                % คำนวณจากยอดของแต่ละกลุ่ม เทียบกับ "รายได้รวม" —
+                รหัสที่ยังไม่ได้จัดกลุ่ม <span className="text-amber-600 font-medium">จะไม่ถูกรวม</span> ในยอดนี้
+                {(data.ungroupedAccounts ?? []).length > 0 && ` (${(data.ungroupedAccounts ?? []).length} รหัส, ยอด ${formatBaht(ungroupedTotal)} บาท)`}
+              </p>
+            </div>
+          </>
+        )
+      })()}
     </div>
   )
 }

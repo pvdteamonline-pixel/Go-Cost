@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
+import ExportModal from '../components/ExportModal'
 
 const MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
@@ -18,6 +19,23 @@ function fmtPct(n) {
 function fmtV(n) {
   if (!n || n === 0) return ''
   return n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function buildPlExcelSheet(raw, computed, year) {
+  const header = ['\u0e23\u0e2b\u0e31\u0e2a\u0e1a\u0e31\u0e0d\u0e0a\u0e35', '\u0e0a\u0e37\u0e48\u0e2d\u0e1a\u0e31\u0e0d\u0e0a\u0e35', ...MONTH_SHORT, '\u0e23\u0e27\u0e21']
+  if (!raw || !computed) return [{ name: `P&L ${year}`, rows: [header] }]
+  const rows = [header]
+  rows.push(['', 'รายได้รวม', ...computed.rev.map(v => v || ''), computed.revTotal || ''])
+  ;(raw.groups ?? []).forEach(g => {
+    rows.push([g.code, g.name, ...(g.monthly ?? []).map(v => Number(v) || ''), Number(g.total) || ''])
+    ;(g.accounts ?? []).forEach(a => {
+      rows.push([a.code, a.name, ...(a.monthly ?? []).map(v => Number(v) || ''), Number(a.total) || ''])
+    })
+    rows.push(['', `รวม ${g.name}`, ...(g.monthly ?? []).map(v => Number(v) || ''), Number(g.total) || ''])
+  })
+  rows.push(['', 'รวมค่าใช้จ่ายทั้งหมด', ...computed.totalExpMonthly.map(v => v || ''), computed.totalExpTotal || ''])
+  rows.push(['', 'กำไร(ขาดทุน)สุทธิ', ...computed.netMonthly.map(v => v || ''), computed.netTotal || ''])
+  return [{ name: `P&L ${year}`, rows }]
 }
 
 // Is this group a Revenue group?
@@ -172,15 +190,24 @@ export default function PLReportPage() {
             P&amp;L Report รายเดือน ปี {year} — ข้อมูลจากไฟล์ที่นำเข้าระบบ
           </p>
         </div>
-        <select
-          className="glass-input text-sm w-28"
-          value={year}
-          onChange={(e) => setYear(Number(e.target.value))}
-        >
-          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          {raw && computed && (
+            <ExportModal
+              fileNameBase={`P&L_ปี${year}`}
+              pdfPreview={<PLReportPdfPreview raw={raw} computed={computed} year={year} />}
+              excelSheets={buildPlExcelSheet(raw, computed, year)}
+            />
+          )}
+          <select
+            className="glass-input text-sm w-28"
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+          >
+            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
@@ -376,6 +403,71 @@ export default function PLReportPage() {
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── PDF Preview Component (ใช้ใน ExportModal) ─────────────────────────────
+function PLReportPdfPreview({ raw, computed, year }) {
+  if (!raw || !computed) return null
+  const fmtNum = (n) => (n ?? 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmtV2 = (n) => (!n || n === 0) ? '' : fmtNum(n)
+  const MONTHS_PDF = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+  return (
+    <div style={{ color: '#1d1d1f', fontFamily: "'Sarabun', sans-serif", fontSize: 9 }}>
+      <h1 style={{ fontSize: 16, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 }}>ประมาณการกำไรขาดทุน (P&L Statement)</h1>
+      <p style={{ textAlign: 'center', color: '#6e6e73', fontSize: 10, marginBottom: 16 }}>ปี {year} (พ.ศ. {year + 543}) — สร้างเมื่อ {new Date().toLocaleDateString('th-TH')}</p>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8 }}>
+        <thead>
+          <tr style={{ borderBottom: '2px solid #1d1d1f', backgroundColor: '#f0f0f0' }}>
+            <th style={{ textAlign: 'left', padding: '3px 4px', width: 70 }}>รหัส</th>
+            <th style={{ textAlign: 'left', padding: '3px 4px', width: 160 }}>ชื่อบัญชี</th>
+            {MONTHS_PDF.map((m) => <th key={m} style={{ textAlign: 'right', padding: '3px 4px', width: 70 }}>{m}</th>)}
+            <th style={{ textAlign: 'right', padding: '3px 4px', width: 80 }}>รวม</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style={{ backgroundColor: '#e8f5e9', fontWeight: 'bold' }}>
+            <td style={{ padding: '3px 4px' }} colSpan={2}>รายได้รวม</td>
+            {computed.rev.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '3px 4px' }}>{fmtV2(v)}</td>)}
+            <td style={{ textAlign: 'right', padding: '3px 4px' }}>{fmtNum(computed.revTotal)}</td>
+          </tr>
+          {(raw.groups ?? []).map((g, gIdx) => (
+            <React.Fragment key={g.groupId || gIdx}>
+              <tr style={{ backgroundColor: '#f5f5f7', borderTop: '1px solid #d2d2d7' }}>
+                <td style={{ padding: '3px 4px', fontWeight: 'bold' }} colSpan={2}>กลุ่ม {gIdx + 1}. {g.code} — {g.name}</td>
+                <td colSpan={13}></td>
+              </tr>
+              {(g.accounts ?? []).map((a) => (
+                <tr key={a.code} style={{ borderBottom: '1px solid #e8e8ed' }}>
+                  <td style={{ padding: '2px 4px 2px 10px', fontFamily: 'monospace', color: '#0077b6' }}>{a.code}</td>
+                  <td style={{ padding: '2px 4px' }}>{a.name}</td>
+                  {(a.monthly ?? []).map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '2px 4px' }}>{Number(v) !== 0 ? fmtV2(Number(v)) : ''}</td>)}
+                  <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{fmtV2(Number(a.total))}</td>
+                </tr>
+              ))}
+              <tr style={{ borderBottom: '1px solid #d2d2d7' }}>
+                <td style={{ padding: '2px 4px 2px 10px', fontStyle: 'italic', color: '#6e6e73' }} colSpan={2}>รวม {g.name}</td>
+                {(g.monthly ?? []).map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{fmtV2(Number(v))}</td>)}
+                <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{fmtV2(Number(g.total))}</td>
+              </tr>
+            </React.Fragment>
+          ))}
+          <tr style={{ backgroundColor: '#e3f2fd', borderTop: '2px solid #1565c0', fontWeight: 'bold' }}>
+            <td style={{ padding: '3px 4px' }} colSpan={2}>รวมค่าใช้จ่ายทั้งหมด</td>
+            {computed.totalExpMonthly.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '3px 4px', color: '#0d47a1' }}>{fmtV2(v)}</td>)}
+            <td style={{ textAlign: 'right', padding: '3px 4px', color: '#0d47a1' }}>{fmtNum(computed.totalExpTotal)}</td>
+          </tr>
+          <tr style={{ backgroundColor: computed.netTotal >= 0 ? '#e8f5e9' : '#fce4ec', borderTop: '2px solid #c62828', fontWeight: 'bold' }}>
+            <td style={{ padding: '4px', fontSize: 10 }} colSpan={2}>ประมาณการกำไร(ขาดทุน)สุทธิ</td>
+            {computed.netMonthly.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '4px', color: v >= 0 ? '#1b5e20' : '#b71c1c' }}>{fmtV2(v)}</td>)}
+            <td style={{ textAlign: 'right', padding: '4px', color: computed.netTotal >= 0 ? '#1b5e20' : '#b71c1c', fontSize: 10 }}>{fmtNum(computed.netTotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 8, color: '#a1a1a6', textAlign: 'center', marginTop: 12, borderTop: '1px solid #e8e8ed', paddingTop: 8 }}>
+        ข้อมูลจากไฟล์ที่นำเข้าระบบ GoCost — {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+      </p>
     </div>
   )
 }

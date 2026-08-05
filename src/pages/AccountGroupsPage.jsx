@@ -25,6 +25,8 @@ export default function AccountGroupsPage() {
   const [available, setAvailable] = useState([])
   const [memberSearch, setMemberSearch] = useState('')
   const [busyAccountId, setBusyAccountId] = useState(null)
+  const [selectedToAdd, setSelectedToAdd] = useState([]) // multi-select IDs
+  const [batchAdding, setBatchAdding] = useState(false)
 
   // ยอดตามกลุ่ม (filter เดือน/ปี)
   const [reportYear, setReportYear] = useState(new Date().getFullYear())
@@ -48,6 +50,7 @@ export default function AccountGroupsPage() {
   async function loadMembers(group) {
     setActiveGroup(group)
     setError('')
+    setSelectedToAdd([]) // clear selection when switching group
     const { data, error: err } = await supabase.rpc('get_group_members', {
       p_actor_id: currentUser?.id ?? null, p_group_id: group.id,
     })
@@ -126,7 +129,21 @@ export default function AccountGroupsPage() {
     setBusyAccountId(null)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
     if (!data.success) return setError(data.message)
-    setNotice(data.message)
+    return data
+  }
+
+  async function handleBatchAdd() {
+    if (selectedToAdd.length === 0) return
+    setBatchAdding(true)
+    setError('')
+    let lastMsg = ''
+    for (const accountId of selectedToAdd) {
+      const result = await handleAdd(accountId, 100)
+      if (result?.message) lastMsg = result.message
+    }
+    setBatchAdding(false)
+    setSelectedToAdd([])
+    setNotice(`เพิ่ม ${selectedToAdd.length} รหัสเข้ากลุ่มเรียบร้อยแล้ว`)
     loadMembers(activeGroup)
     load()
   }
@@ -145,7 +162,25 @@ export default function AccountGroupsPage() {
   }
 
   async function handleUpdateFraction(accountId, fractionPercent) {
-    await handleAdd(accountId, fractionPercent)
+    const result = await handleAdd(accountId, fractionPercent)
+    if (result?.message) setNotice(result.message)
+    loadMembers(activeGroup)
+    load()
+  }
+
+  function toggleSelectAccount(id) {
+    setSelectedToAdd((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  function toggleSelectAll() {
+    const eligible = filteredAvailable.filter((a) => a.allocatedElsewhere < 1)
+    if (eligible.every((a) => selectedToAdd.includes(a.id))) {
+      setSelectedToAdd((prev) => prev.filter((id) => !eligible.map((a) => a.id).includes(id)))
+    } else {
+      setSelectedToAdd((prev) => [...new Set([...prev, ...eligible.map((a) => a.id)])])
+    }
   }
 
   if (!canUse) {
@@ -306,30 +341,86 @@ export default function AccountGroupsPage() {
               </div>
 
               <div className="glass p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-ink-500 text-xs uppercase tracking-wider">เพิ่มรหัสเข้ากลุ่ม</p>
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <p className="text-ink-500 text-xs uppercase tracking-wider">เพิ่มรหัสเข้ากลุ่ม</p>
+                    {selectedToAdd.length > 0 && (
+                      <span className="text-xs bg-ocean/10 text-ocean rounded-full px-2 py-0.5 font-medium">
+                        เลือกแล้ว {selectedToAdd.length} รหัส
+                      </span>
+                    )}
+                  </div>
                   <input className="glass-input text-xs w-48" placeholder="ค้นหารหัส/ชื่อ..." value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} />
                 </div>
-                <div className="max-h-64 overflow-y-auto space-y-1">
-                  {filteredAvailable.map((a) => (
-                    <div key={a.id} className="flex items-center justify-between text-sm py-1.5 border-b border-black/5 last:border-0">
-                      <span className="text-ink-700">
-                        {a.code} — {a.name}
-                        {a.allocatedElsewhere > 0 && (
-                          <span className="text-ink-400 text-xs ml-2">(จัดสรรไปแล้ว {Math.round(a.allocatedElsewhere * 1000) / 10}% ในกลุ่มอื่น)</span>
-                        )}
-                      </span>
-                      <button
-                        onClick={() => handleAdd(a.id, 100)}
-                        disabled={busyAccountId === a.id || a.allocatedElsewhere >= 1}
-                        className="text-ocean text-xs hover:underline disabled:opacity-50"
+
+                {filteredAvailable.length > 0 && (
+                  <div className="flex items-center gap-2 mb-2 pb-2 border-b border-black/5">
+                    <input
+                      type="checkbox"
+                      id="select-all-available"
+                      className="w-4 h-4 accent-ocean cursor-pointer"
+                      checked={
+                        filteredAvailable.filter((a) => a.allocatedElsewhere < 1).length > 0 &&
+                        filteredAvailable.filter((a) => a.allocatedElsewhere < 1).every((a) => selectedToAdd.includes(a.id))
+                      }
+                      onChange={toggleSelectAll}
+                    />
+                    <label htmlFor="select-all-available" className="text-xs text-ink-600 cursor-pointer select-none">
+                      เลือกทั้งหมด ({filteredAvailable.filter((a) => a.allocatedElsewhere < 1).length} รหัส)
+                    </label>
+                  </div>
+                )}
+
+                <div className="max-h-64 overflow-y-auto space-y-0.5">
+                  {filteredAvailable.map((a) => {
+                    const disabled = a.allocatedElsewhere >= 1
+                    const checked = selectedToAdd.includes(a.id)
+                    return (
+                      <label
+                        key={a.id}
+                        className={`flex items-center gap-3 text-sm py-2 border-b border-black/5 last:border-0 cursor-pointer rounded px-1 transition-colors
+                          ${checked ? 'bg-ocean/5' : 'hover:bg-black/[0.02]'}
+                          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        {busyAccountId === a.id ? 'กำลังเพิ่ม...' : 'เพิ่มเข้ากลุ่ม'}
-                      </button>
-                    </div>
-                  ))}
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-ocean flex-shrink-0"
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={() => !disabled && toggleSelectAccount(a.id)}
+                        />
+                        <span className="text-ink-700 flex-1 min-w-0">
+                          {a.code} — {a.name}
+                          {a.allocatedElsewhere > 0 && (
+                            <span className="text-ink-400 text-xs ml-2">(จัดสรรไปแล้ว {Math.round(a.allocatedElsewhere * 1000) / 10}% ในกลุ่มอื่น)</span>
+                          )}
+                        </span>
+                      </label>
+                    )
+                  })}
                   {filteredAvailable.length === 0 && <p className="text-ink-400 text-sm py-2">ไม่พบรหัสที่ตรงกับคำค้นหา</p>}
                 </div>
+
+                {selectedToAdd.length > 0 && (
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-black/10">
+                    <span className="text-ink-600 text-sm">เพิ่ม {selectedToAdd.length} รหัสที่เลือกเข้ากลุ่ม</span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSelectedToAdd([])}
+                        className="text-ink-400 text-xs hover:underline"
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        onClick={handleBatchAdd}
+                        disabled={batchAdding}
+                        className="btn-primary text-sm disabled:opacity-60"
+                      >
+                        {batchAdding ? 'กำลังบันทึก...' : `บันทึก ${selectedToAdd.length} รหัส`}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

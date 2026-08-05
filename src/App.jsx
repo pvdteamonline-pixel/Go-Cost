@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -25,6 +25,8 @@ import PLReportPage from './pages/PLReportPage'
 import NotificationsBell from './components/NotificationsBell'
 import { NAV_GROUPS } from './lib/constants'
 import { hasPagePermission } from './lib/permissions'
+import { supabase } from './lib/supabaseClient'
+import { THAI_MONTHS } from './lib/constants'
 
 const IMPLEMENTED_PAGES = {
   dashboard: DashboardPage,
@@ -58,6 +60,96 @@ function ComingSoon({ label }) {
       <p className="text-ink-600 text-sm">
         หน้านี้อยู่ในแผนเฟสถัดไป — ตอนนี้เปิดใช้งานได้เฉพาะ "บันทึกค่าใช้จ่าย" ซึ่งเป็นฟีเจอร์หลักของระบบก่อน
       </p>
+    </div>
+  )
+}
+
+// ─── Status Box: แสดงวันที่แนบไฟล์ล่าสุด + เดือน/ปีล่าสุด ───────────────────────
+function DataStatusBox() {
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      try {
+        // ดึงประวัติ import ล่าสุด ผ่าน RPC ที่มีอยู่แล้ว
+        const { data: batches } = await supabase
+          .rpc('get_import_batches', { p_actor_id: null, p_batch_type: 'pl_estimate' })
+        if (batches && batches.length > 0) {
+          // เรียงตามวันที่ (ที่ใหม่สุด)
+          const sorted = [...batches].sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
+          const latest = sorted[0]
+          // หาเดือนล่าสุดจาก month_range (e.g. "ม.ค.-ธ.ค." or "มิ.ย.")
+          // ใช้ year จาก batch และ uploaded_at
+          setStatus({
+            latestImportAt: latest.uploaded_at,
+            latestYear: Math.max(...batches.map(b => Number(b.year) || 0)) || latest.year,
+            latestMonthRange: latest.month_range || null,
+          })
+        }
+      } catch (e) {
+        // silent failหากไม่มี RPC
+      }
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="mt-3 pt-3 border-t border-black/10">
+        <p className="text-ink-400 text-[10px]">กำลังโหลดสถานะ...</p>
+      </div>
+    )
+  }
+
+  const importDate = status?.latestImportAt
+    ? new Date(status.latestImportAt)
+    : null
+
+  const monthName = status?.latestMonthRange || null
+
+  // คำนวณเดือนถัดไปจาก year ล่าสุด (บางทีเดือน range = "ม.ค.-ธ.ค." แสดงว่ามีข้อมูลครบทั้งปี)
+  const nextYear = status?.latestYear ? Number(status.latestYear) + 1 : null
+  const nextPeriod = nextYear ? `ปี ${nextYear}` : null
+
+  return (
+    <div className="mt-3 pt-3 border-t border-black/10 space-y-2">
+      <p className="text-[10px] uppercase tracking-wider text-ink-400">สถานะข้อมูล</p>
+      {importDate ? (
+        <div className="bg-white/50 border border-black/[0.07] rounded-xl p-2.5 space-y-1.5">
+          <div className="flex items-start gap-1.5">
+            <span className="text-xs mt-0.5">📂</span>
+            <div>
+              <p className="text-[10px] text-ink-500">แนบไฟล์ล่าสุด</p>
+              <p className="text-[11px] font-medium text-ink-800">
+                {importDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </p>
+              <p className="text-[10px] text-ink-400">เวลา {importDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</p>
+            </div>
+          </div>
+          {monthName && (
+            <div className="flex items-start gap-1.5">
+              <span className="text-xs mt-0.5">📅</span>
+              <div>
+                <p className="text-[10px] text-ink-500">ยอดล่าสุดคือ</p>
+                <p className="text-[11px] font-medium text-ocean">{monthName} ปี {status?.latestYear}</p>
+              </div>
+            </div>
+          )}
+          {nextPeriod && (
+            <div className="bg-sage-pale/60 rounded-lg px-2 py-1.5 border border-sage/20">
+              <p className="text-[9px] text-sage font-medium">→ ลงยอดถัดไป: {nextPeriod}</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-amber-50/80 border border-amber-200/60 rounded-xl p-2.5">
+          <p className="text-[10px] text-amber-700">⚠️ ยังไม่มีข้อมูลในระบบ</p>
+          <p className="text-[9px] text-amber-500 mt-0.5">กรุณาแนบไฟล์บัญชีก่อน</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -102,6 +194,7 @@ function Sidebar({ active, onNavigate }) {
         <p className="text-ink-900 text-sm">{currentUser?.full_name || currentUser?.name}</p>
         <p className="text-ink-500 text-xs mb-3">{currentUser?.role}</p>
         <button onClick={logout} className="btn-ghost w-full text-sm">ออกจากระบบ</button>
+        <DataStatusBox />
       </div>
     </aside>
   )

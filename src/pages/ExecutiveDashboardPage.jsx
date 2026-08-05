@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -102,6 +102,7 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
   const [drillTarget, setDrillTarget] = useState(null)
   const [drillItems, setDrillItems] = useState([])
   const [drillLoading, setDrillLoading] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState(null)
 
   const canDash = hasPagePermission(currentUser, 'exec-dashboard')
   const canRpt  = hasPagePermission(currentUser, 'exec-report')
@@ -117,6 +118,7 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
     if (err) return setDashError('เกิดข้อผิดพลาด: ' + err.message)
     if (!res.success) return setDashError(res.message)
     setDashData(res)
+    setLastRefreshed(new Date())
   }, [currentUser, dashYear])
 
   // โหลดรายละเอียดตามกลุ่มรหัสบัญชี
@@ -186,16 +188,32 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
             <h1 className="font-display italic text-3xl text-ink-900">แดชบอร์ดฝ่ายบริหาร</h1>
             <p className="text-ink-600 text-sm mt-1">สรุปกำไร-ขาดทุน Control & Alert System และงบประมาณเทียบยอดใช้จริง</p>
           </div>
-          <select
-            id="exec-dash-year"
-            className="glass-input text-sm w-32"
-            value={dashYear}
-            onChange={(e) => setDashYear(Number(e.target.value))}
-          >
-            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            {lastRefreshed && (
+              <span className="text-ink-400 text-xs">
+                อัพเดตล่าสุด: {lastRefreshed.toLocaleTimeString('th-TH')}
+              </span>
+            )}
+            <button
+              onClick={() => { loadDash(); loadRpt() }}
+              disabled={dashLoading || rptLoading}
+              className="btn-ghost text-sm flex items-center gap-1.5 disabled:opacity-50"
+              title="รีเฟรชข้อมูล"
+            >
+              <span className={dashLoading || rptLoading ? 'animate-spin' : ''}>🔄</span>
+              รีเฟรช
+            </button>
+            <select
+              id="exec-dash-year"
+              className="glass-input text-sm w-32"
+              value={dashYear}
+              onChange={(e) => setDashYear(Number(e.target.value))}
+            >
+              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {dashError && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{dashError}</p>}
@@ -364,19 +382,31 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
               : null
             }
 
-            {/* รหัสที่ยังไม่ได้จัดกลุ่ม */}
-            {rptData.ungroupedAccounts?.length > 0 && (
-              <GroupBlock
-                group={{
-                  code: '—',
-                  name: 'รหัสบัญชีที่ยังไม่มีกลุ่ม',
-                  total: rptData.ungroupedAccounts.reduce((s, a) => s + a.total, 0),
-                  accounts: rptData.ungroupedAccounts,
-                }}
-                grandTotal={rptData.grandTotal}
-                onInspect={handleInspectGroup}
-              />
-            )}
+            {/* รหัสที่ยังไม่ได้จัดกลุ่ม — แสดงเป็น warning banner */}
+            {rptData.ungroupedAccounts?.length > 0 && (() => {
+              const ugTotal = rptData.ungroupedAccounts.reduce((s, a) => s + a.total, 0)
+              return (
+                <div className="bg-amber-50 border border-amber-300/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
+                    <div>
+                      <p className="text-amber-800 font-medium text-sm">
+                        มีรหัสบัญชีที่ยังไม่ได้จัดกลุ่ม {rptData.ungroupedAccounts.length} รหัส — ยอดรวม {formatBaht(ugTotal)} บาท
+                      </p>
+                      <p className="text-amber-600 text-xs mt-0.5">รหัสเหล่านี้ถูกแยกออกจากรายงาน กรุณาจัดกลุ่มก่อนเพื่อให้ยอดรวมถูกต้องสมบูรณ์</p>
+                    </div>
+                  </div>
+                  {onNavigate && (
+                    <button
+                      onClick={() => onNavigate('account-groups')}
+                      className="btn-primary text-xs px-3 py-1.5 shrink-0"
+                    >
+                      📂 ไปจัดกลุ่มรหัสบัญชี
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* กรณีไม่มีข้อมูล */}
             {!rptData.groups?.length && !rptData.ungroupedAccounts?.length && (

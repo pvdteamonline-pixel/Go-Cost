@@ -90,32 +90,69 @@ export default function ReconciliationPage() {
           <div className="glass p-0 overflow-hidden">
             {rows.length === 0 ? (
               <p className="text-ink-400 text-sm text-center py-10">ไม่มีข้อมูลให้เทียบในช่วงเวลานี้ (ต้องมีทั้งข้อมูลที่พนักงานกรอกและ/หรือไฟล์ที่แนบ)</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-black/10 text-left text-ink-500 text-xs uppercase tracking-wider">
-                    <th className="px-4 py-3">รหัสบัญชี</th>
-                    <th className="px-4 py-3">ชื่อบัญชี</th>
-                    <th className="px-4 py-3">ยอดที่พนักงานกรอก</th>
-                    <th className="px-4 py-3">ยอดจากไฟล์</th>
-                    <th className="px-4 py-3">ผลต่าง</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.code} className="border-b border-black/5 last:border-0">
-                      <td className="px-4 py-3 text-ink-900 whitespace-nowrap">{r.code}</td>
-                      <td className="px-4 py-3 text-ink-700">{r.name}</td>
-                      <td className="px-4 py-3 text-ink-700">{formatBaht(r.staffAmount)}</td>
-                      <td className="px-4 py-3 text-ink-700">{formatBaht(r.fileAmount)}</td>
-                      <td className={`px-4 py-3 font-medium ${r.diff === 0 ? 'text-sage' : 'text-rose'}`}>
-                        {formatBaht(r.diff)} {r.diff !== 0 && '⚠️'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            ) : (() => {
+              // จัดกลุ่มรายการตามหมวดหมู่ / กลุ่มบัญชี
+              const categoryMap = new Map()
+              for (const r of rows) {
+                const cat = r.category || r.groupName || 'หมวดหมู่ทั่วไป'
+                if (!categoryMap.has(cat)) categoryMap.set(cat, [])
+                categoryMap.get(cat).push(r)
+              }
+              const categories = Array.from(categoryMap.entries())
+
+              return (
+                <div className="divide-y divide-black/10">
+                  {categories.map(([catName, items]) => {
+                    const catStaff = items.reduce((s, r) => s + r.staffAmount, 0)
+                    const catFile = items.reduce((s, r) => s + r.fileAmount, 0)
+                    const catDiff = catFile - catStaff
+
+                    return (
+                      <div key={catName} className="p-4 space-y-2">
+                        <div className="flex items-center justify-between bg-ink-100/60 rounded-lg px-3 py-1.5 font-medium text-xs text-ink-800">
+                          <span className="flex items-center gap-2">
+                            <span className="doc-badge bg-gold-pale text-gold-dark border-gold/30">📂 {catName}</span>
+                            <span>({items.length} รายการ)</span>
+                          </span>
+                          <span className="flex items-center gap-4 text-xs">
+                            <span>พนักงาน: {formatBaht(catStaff)}</span>
+                            <span>ไฟล์: {formatBaht(catFile)}</span>
+                            <span className={catDiff === 0 ? 'text-sage' : 'text-rose font-semibold'}>
+                              ผลต่าง: {formatBaht(catDiff)} {catDiff !== 0 && '⚠️'}
+                            </span>
+                          </span>
+                        </div>
+
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-black/10 text-left text-ink-500 uppercase tracking-wider">
+                              <th className="px-3 py-1.5 w-28">รหัสบัญชี</th>
+                              <th className="px-3 py-1.5">ชื่อบัญชี</th>
+                              <th className="px-3 py-1.5 text-right">ยอดพนักงานกรอก</th>
+                              <th className="px-3 py-1.5 text-right">ยอดจากไฟล์</th>
+                              <th className="px-3 py-1.5 text-right">ผลต่าง</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.map((r) => (
+                              <tr key={r.code} className="border-b border-black/5 last:border-0 hover:bg-black/[0.01]">
+                                <td className="px-3 py-1.5 text-ocean font-mono">{r.code}</td>
+                                <td className="px-3 py-1.5 text-ink-700">{r.name}</td>
+                                <td className="px-3 py-1.5 text-right text-ink-700 tabular-nums">{formatBaht(r.staffAmount)}</td>
+                                <td className="px-3 py-1.5 text-right text-ink-700 tabular-nums">{formatBaht(r.fileAmount)}</td>
+                                <td className={`px-3 py-1.5 text-right font-medium tabular-nums ${r.diff === 0 ? 'text-sage' : 'text-rose'}`}>
+                                  {formatBaht(r.diff)} {r.diff !== 0 && '⚠️'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         </>
       )}
