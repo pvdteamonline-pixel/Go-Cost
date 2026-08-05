@@ -8,6 +8,16 @@ function formatBaht(n) {
   return (n ?? 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function getGId(g) {
+  if (!g) return null
+  return g.id || g.groupId || g.group_id || null
+}
+
+function getAId(a) {
+  if (!a) return null
+  return a.id || a.accountId || a.account_id || a.code || null
+}
+
 export default function AccountGroupsPage() {
   const { currentUser } = useAuth()
   const [groups, setGroups] = useState([])
@@ -45,15 +55,19 @@ export default function AccountGroupsPage() {
 
     const groupsList = data ?? []
     try {
-      const { data: accs } = await supabase.from('accounts').select('id, group_id')
+      const { data: accs } = await supabase.from('accounts').select('id, group_id, code')
       if (accs) {
         const countMap = {}
         accs.forEach((a) => {
           if (a.group_id) countMap[a.group_id] = (countMap[a.group_id] || 0) + 1
         })
         groupsList.forEach((g) => {
-          if (countMap[g.id] !== undefined) {
-            g.child_count = Math.max(g.child_count || 0, countMap[g.id])
+          const gid = getGId(g)
+          if (gid && countMap[gid] !== undefined) {
+            g.child_count = Math.max(g.child_count || 0, countMap[gid])
+          }
+          if (g.code && countMap[g.code] !== undefined) {
+            g.child_count = Math.max(g.child_count || 0, countMap[g.code])
           }
         })
       }
@@ -67,11 +81,13 @@ export default function AccountGroupsPage() {
   useEffect(() => { if (canUse) load() }, [canUse, load])
 
   async function loadMembers(group) {
+    if (!group) return
+    const gId = getGId(group)
     setActiveGroup(group)
     setError('')
     setSelectedToAdd([]) // clear selection when switching group
     const { data, error: err } = await supabase.rpc('get_group_members', {
-      p_actor_id: currentUser?.id ?? null, p_group_id: group.id,
+      p_actor_id: currentUser?.id ?? null, p_group_id: gId,
     })
 
     if (!err && data?.success) {
@@ -79,11 +95,14 @@ export default function AccountGroupsPage() {
       let avails = data.available || []
 
       // หาก RPC คืนค่า members ว่างเปล่า ให้ fallback ดึงตรงจากตาราง accounts
-      if (mems.length === 0) {
-        const { data: directMems } = await supabase.from('accounts').select('*').eq('group_id', group.id)
+      if (mems.length === 0 && gId) {
+        const { data: directMems } = await supabase
+          .from('accounts')
+          .select('*')
+          .or(`group_id.eq.${gId},group_id.eq.${group.code || ''}`)
         if (directMems && directMems.length > 0) {
           mems = directMems.map((m) => ({ ...m, fraction: 1.0 }))
-          avails = avails.filter((a) => !directMems.some((dm) => dm.id === a.id))
+          avails = avails.filter((a) => !directMems.some((dm) => getAId(dm) === getAId(a)))
         }
       }
 
@@ -97,9 +116,11 @@ export default function AccountGroupsPage() {
 
   const loadGroupReport = useCallback(async () => {
     if (!activeGroup) return
+    const gId = getGId(activeGroup)
+    if (!gId) return
     setReportLoading(true)
     const { data, error: err } = await supabase.rpc('get_group_report', {
-      p_actor_id: currentUser?.id ?? null, p_group_id: activeGroup.id,
+      p_actor_id: currentUser?.id ?? null, p_group_id: gId,
       p_year: reportYear, p_month: reportMonth ? Number(reportMonth) : null,
     })
     setReportLoading(false)
@@ -243,10 +264,11 @@ export default function AccountGroupsPage() {
 
   function toggleSelectAll() {
     const eligible = filteredAvailable.filter((a) => a.allocatedElsewhere < 1)
-    if (eligible.every((a) => selectedToAdd.includes(a.id))) {
-      setSelectedToAdd((prev) => prev.filter((id) => !eligible.map((a) => a.id).includes(id)))
+    const eligibleIds = eligible.map((a) => getAId(a)).filter(Boolean)
+    if (eligibleIds.every((id) => selectedToAdd.includes(id))) {
+      setSelectedToAdd((prev) => prev.filter((id) => !eligibleIds.includes(id)))
     } else {
-      setSelectedToAdd((prev) => [...new Set([...prev, ...eligible.map((a) => a.id)])])
+      setSelectedToAdd((prev) => [...new Set([...prev, ...eligibleIds])])
     }
   }
 
@@ -300,34 +322,39 @@ export default function AccountGroupsPage() {
           {loading && <p className="text-ink-500 text-sm p-4">กำลังโหลด...</p>}
           {!loading && groups.length === 0 && <p className="text-ink-400 text-sm p-4">ยังไม่มีกลุ่ม</p>}
           <div className="divide-y divide-black/5">
-            {groups.map((g) => (
-              <div key={g.id} className={`p-3 ${activeGroup?.id === g.id ? 'bg-ocean-pale' : ''}`}>
-                {editingGroup?.id === g.id ? (
-                  <form onSubmit={handleUpdateGroup} className="space-y-2">
-                    <input className="glass-input text-xs w-full" value={editingGroup.code}
-                           onChange={(e) => setEditingGroup((s) => ({ ...s, code: e.target.value }))} />
-                    <input className="glass-input text-xs w-full" value={editingGroup.name}
-                           onChange={(e) => setEditingGroup((s) => ({ ...s, name: e.target.value }))} />
-                    <div className="flex gap-2">
-                      <button type="submit" className="text-ocean text-xs hover:underline">บันทึก</button>
-                      <button type="button" onClick={() => setEditingGroup(null)} className="text-ink-400 text-xs hover:underline">ยกเลิก</button>
+            {groups.map((g) => {
+              const gId = getGId(g)
+              const isSelected = getGId(activeGroup) === gId
+              const isEditing = getGId(editingGroup) === gId
+              return (
+                <div key={gId || g.code} className={`p-3 ${isSelected ? 'bg-ocean-pale' : ''}`}>
+                  {isEditing ? (
+                    <form onSubmit={handleUpdateGroup} className="space-y-2">
+                      <input className="glass-input text-xs w-full" value={editingGroup.code}
+                             onChange={(e) => setEditingGroup((s) => ({ ...s, code: e.target.value }))} />
+                      <input className="glass-input text-xs w-full" value={editingGroup.name}
+                             onChange={(e) => setEditingGroup((s) => ({ ...s, name: e.target.value }))} />
+                      <div className="flex gap-2">
+                        <button type="submit" className="text-ocean text-xs hover:underline">บันทึก</button>
+                        <button type="button" onClick={() => setEditingGroup(null)} className="text-ink-400 text-xs hover:underline">ยกเลิก</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button onClick={() => loadMembers(g)} className="w-full text-left">
+                      <span className="doc-badge">{g.code}</span>
+                      <p className="text-ink-900 text-sm mt-1">{g.name}</p>
+                      <p className="text-ink-400 text-xs mt-0.5">{g.child_count || 0} รหัสในกลุ่ม</p>
+                    </button>
+                  )}
+                  {!isEditing && (
+                    <div className="flex gap-3 mt-2">
+                      <button onClick={() => setEditingGroup({ id: gId, code: g.code, name: g.name })} className="text-ocean text-xs hover:underline">แก้ไข</button>
+                      <button onClick={() => handleDeleteGroup(gId)} className="text-rose text-xs hover:underline">ลบ</button>
                     </div>
-                  </form>
-                ) : (
-                  <button onClick={() => loadMembers(g)} className="w-full text-left">
-                    <span className="doc-badge">{g.code}</span>
-                    <p className="text-ink-900 text-sm mt-1">{g.name}</p>
-                    <p className="text-ink-400 text-xs mt-0.5">{g.child_count} รหัสในกลุ่ม</p>
-                  </button>
-                )}
-                {editingGroup?.id !== g.id && (
-                  <div className="flex gap-3 mt-2">
-                    <button onClick={() => setEditingGroup({ id: g.id, code: g.code, name: g.name })} className="text-ocean text-xs hover:underline">แก้ไข</button>
-                    <button onClick={() => handleDeleteGroup(g.id)} className="text-rose text-xs hover:underline">ลบ</button>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -391,19 +418,22 @@ export default function AccountGroupsPage() {
                 <p className="text-ink-500 text-xs uppercase tracking-wider mb-2">รหัสในกลุ่มนี้ ({members.length})</p>
                 {members.length === 0 && <p className="text-ink-400 text-sm py-2">ยังไม่มีรหัสในกลุ่มนี้</p>}
                 <div className="space-y-1">
-                  {members.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between text-sm py-1.5 border-b border-black/5 last:border-0 gap-2">
-                      <span className="text-ink-900 flex-1">{m.code} — {m.name}</span>
-                      <input
-                        type="number" min="1" max="100" step="0.1"
-                        className="glass-input text-xs w-20"
-                        defaultValue={Math.round(m.fraction * 1000) / 10}
-                        onBlur={(e) => e.target.value !== String(Math.round(m.fraction * 1000) / 10) && handleUpdateFraction(m.id, e.target.value)}
-                      />
-                      <span className="text-ink-400 text-xs">%</span>
-                      <button onClick={() => handleRemove(m.id)} disabled={busyAccountId === m.id} className="text-rose text-xs hover:underline disabled:opacity-50">เอาออก</button>
-                    </div>
-                  ))}
+                  {members.map((m) => {
+                    const mId = getAId(m)
+                    return (
+                      <div key={mId || m.code} className="flex items-center justify-between text-sm py-1.5 border-b border-black/5 last:border-0 gap-2">
+                        <span className="text-ink-900 flex-1">{m.code} — {m.name}</span>
+                        <input
+                          type="number" min="1" max="100" step="0.1"
+                          className="glass-input text-xs w-20"
+                          defaultValue={Math.round(m.fraction * 1000) / 10}
+                          onBlur={(e) => e.target.value !== String(Math.round(m.fraction * 1000) / 10) && handleUpdateFraction(mId, e.target.value)}
+                        />
+                        <span className="text-ink-400 text-xs">%</span>
+                        <button onClick={() => handleRemove(mId)} disabled={busyAccountId === mId} className="text-rose text-xs hover:underline disabled:opacity-50">เอาออก</button>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -428,7 +458,7 @@ export default function AccountGroupsPage() {
                       className="w-4 h-4 accent-ocean cursor-pointer"
                       checked={
                         filteredAvailable.filter((a) => a.allocatedElsewhere < 1).length > 0 &&
-                        filteredAvailable.filter((a) => a.allocatedElsewhere < 1).every((a) => selectedToAdd.includes(a.id))
+                        filteredAvailable.filter((a) => a.allocatedElsewhere < 1).every((a) => selectedToAdd.includes(getAId(a)))
                       }
                       onChange={toggleSelectAll}
                     />
@@ -440,11 +470,12 @@ export default function AccountGroupsPage() {
 
                 <div className="max-h-64 overflow-y-auto space-y-0.5">
                   {filteredAvailable.map((a) => {
+                    const aId = getAId(a)
                     const disabled = a.allocatedElsewhere >= 1
-                    const checked = selectedToAdd.includes(a.id)
+                    const checked = selectedToAdd.includes(aId)
                     return (
                       <label
-                        key={a.id}
+                        key={aId || a.code}
                         className={`flex items-center gap-3 text-sm py-2 border-b border-black/5 last:border-0 cursor-pointer rounded px-1 transition-colors
                           ${checked ? 'bg-ocean/5' : 'hover:bg-black/[0.02]'}
                           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -454,7 +485,7 @@ export default function AccountGroupsPage() {
                           className="w-4 h-4 accent-ocean flex-shrink-0"
                           checked={checked}
                           disabled={disabled}
-                          onChange={() => !disabled && toggleSelectAccount(a.id)}
+                          onChange={() => !disabled && toggleSelectAccount(aId)}
                         />
                         <span className="text-ink-700 flex-1 min-w-0">
                           {a.code} — {a.name}

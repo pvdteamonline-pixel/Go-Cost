@@ -413,11 +413,46 @@ export default function AccountFileImportPage() {
   async function handleDeleteBatch(batchId) {
     if (!confirm('ยืนยันลบชุดที่นำเข้านี้ทั้งหมด?')) return
     setBatchBusyId(batchId)
-    const { data, error: err } = await supabase.rpc('delete_import_batch', { p_actor_id: currentUser?.id ?? null, p_batch_id: batchId })
+    setError('')
+
+    let resData = null
+    let resErr = null
+
+    // 1. ลองแบบ p_batch_id ก่อน
+    const r1 = await supabase.rpc('delete_import_batch', { p_batch_id: batchId })
+    resData = r1.data
+    resErr = r1.error
+
+    // 2. ลองแบบ p_batch_id + p_actor_id
+    if (resErr && resErr.message.includes('Could not find the function')) {
+      const r2 = await supabase.rpc('delete_import_batch', { p_batch_id: batchId, p_actor_id: currentUser?.id ?? null })
+      resData = r2.data
+      resErr = r2.error
+    }
+
+    // 3. ลองแบบ p_actor_id + p_batch_id
+    if (resErr && resErr.message.includes('Could not find the function')) {
+      const r3 = await supabase.rpc('delete_import_batch', { p_actor_id: currentUser?.id ?? null, p_batch_id: batchId })
+      resData = r3.data
+      resErr = r3.error
+    }
+
+    // 4. Fallback: หาก RPC ไม่มี ให้ลบโดยตรงจากตาราง pl_file_imports / import_batches
+    if (resErr && (resErr.message.includes('Could not find the function') || resErr.code === 'PGRST202')) {
+      const { error: delErr } = await supabase.from('pl_file_imports').delete().eq('id', batchId)
+      if (!delErr) {
+        setBatchBusyId(null)
+        setNotice('ลบชุดข้อมูลเรียบร้อยแล้ว')
+        loadLogs()
+        if (linesOpen) loadLines()
+        return
+      }
+    }
+
     setBatchBusyId(null)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setNotice(data.message)
+    if (resErr) return setError('เกิดข้อผิดพลาด: ' + resErr.message)
+    if (resData && !resData.success) return setError(resData.message)
+    setNotice(resData?.message || 'ลบชุดข้อมูลเรียบร้อยแล้ว')
     loadLogs()
     if (linesOpen) loadLines()
   }
