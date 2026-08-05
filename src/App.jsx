@@ -66,22 +66,20 @@ function ComingSoon({ label }) {
 
 // ─── Status Box: แสดงวันที่แนบไฟล์ล่าสุด + เดือน/ปีล่าสุด ───────────────────────
 function DataStatusBox() {
+  const { currentUser } = useAuth()
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
+      if (!currentUser?.id) return setLoading(false)
       setLoading(true)
       try {
-        // ดึงประวัติ import ล่าสุด ผ่าน RPC ที่มีอยู่แล้ว
         const { data: batches } = await supabase
-          .rpc('get_import_batches', { p_actor_id: null, p_batch_type: 'pl_estimate' })
+          .rpc('get_import_batches', { p_actor_id: currentUser.id, p_batch_type: 'pl_estimate' })
         if (batches && batches.length > 0) {
-          // เรียงตามวันที่ (ที่ใหม่สุด)
           const sorted = [...batches].sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at))
           const latest = sorted[0]
-          // หาเดือนล่าสุดจาก month_range (e.g. "ม.ค.-ธ.ค." or "มิ.ย.")
-          // ใช้ year จาก batch และ uploaded_at
           setStatus({
             latestImportAt: latest.uploaded_at,
             latestYear: Math.max(...batches.map(b => Number(b.year) || 0)) || latest.year,
@@ -89,12 +87,12 @@ function DataStatusBox() {
           })
         }
       } catch (e) {
-        // silent failหากไม่มี RPC
+        // silent fail
       }
       setLoading(false)
     }
     load()
-  }, [])
+  }, [currentUser])
 
   if (loading) {
     return (

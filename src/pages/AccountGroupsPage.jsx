@@ -96,10 +96,16 @@ export default function AccountGroupsPage() {
 
       // หาก RPC คืนค่า members ว่างเปล่า ให้ fallback ดึงตรงจากตาราง accounts
       if (mems.length === 0 && gId) {
-        const { data: directMems } = await supabase
-          .from('accounts')
-          .select('*')
-          .or(`group_id.eq.${gId},group_id.eq.${group.code || ''}`)
+        let directMems = null
+        // ดึงโดยตรงโดยใช้ gId
+        const res1 = await supabase.from('accounts').select('*').eq('group_id', gId)
+        if (res1.data && res1.data.length > 0) {
+          directMems = res1.data
+        } else if (group.code && group.code !== gId) {
+          const res2 = await supabase.from('accounts').select('*').eq('group_id', group.code)
+          if (res2.data && res2.data.length > 0) directMems = res2.data
+        }
+
         if (directMems && directMems.length > 0) {
           mems = directMems.map((m) => ({ ...m, fraction: 1.0 }))
           avails = avails.filter((a) => !directMems.some((dm) => getAId(dm) === getAId(a)))
@@ -198,7 +204,7 @@ export default function AccountGroupsPage() {
 
     // 2. อัปเดตตาราง accounts โดยตรง (group_id) เพื่อรับประกันความตรงกันของผังบัญชี
     try {
-      await supabase.from('accounts').update({ group_id: gId }).or(`id.eq.${accId},code.eq.${accId}`)
+      await supabase.from('accounts').update({ group_id: gId }).eq('id', accId)
     } catch (e) {
       // silent fallback
     }

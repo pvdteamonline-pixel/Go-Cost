@@ -77,9 +77,13 @@ export default function DashboardPage() {
     setLoading(true)
     setError('')
     const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== ''))
+    const workshopFilters = {}
+    if (filters.year) workshopFilters.year = Number(filters.year)
+    if (filters.month) workshopFilters.month = Number(filters.month)
+
     const [statsRes, workshopRes] = await Promise.all([
       supabase.rpc('get_dashboard_stats', { p_filters: cleanFilters }),
-      supabase.rpc('get_workshop_sales_summary', { p_filters: { year: filters.year, month: filters.month } }),
+      supabase.rpc('get_workshop_sales_summary', { p_filters: workshopFilters }),
     ])
     setLoading(false)
     if (statsRes.error) {

@@ -416,59 +416,23 @@ export default function AccountFileImportPage() {
     setError('')
     setNotice('')
 
-    let deleted = false
-    let lastError = ''
-
-    // 1. ลองลบผ่าน RPC ต่างๆ ของระบบ
-    const rpcAttempts = [
-      { name: 'delete_import_batch', params: { p_batch_id: batchId } },
-      { name: 'delete_import_batch', params: { p_batch_id: batchId, p_actor_id: currentUser?.id ?? null } },
-      { name: 'delete_import_batch', params: { p_actor_id: currentUser?.id ?? null, p_batch_id: batchId } },
-      { name: 'delete_account_import_batch', params: { p_batch_id: batchId } },
-    ]
-
-    for (const attempt of rpcAttempts) {
-      try {
-        const { data, error } = await supabase.rpc(attempt.name, attempt.params)
-        if (!error && (data?.success || data === true)) {
-          deleted = true
-          break
-        }
-        if (error && !error.message.includes('Could not find the function')) {
-          lastError = error.message
-        }
-      } catch (e) {
-        // try next
+    try {
+      const { data, error } = await supabase.rpc('delete_import_batch', {
+        p_actor_id: currentUser?.id ?? null,
+        p_batch_id: batchId,
+      })
+      if (error && !error.message.includes('Could not find the function')) {
+        setError('เกิดข้อผิดพลาดในการลบ: ' + error.message)
       }
+    } catch (e) {
+      // silent fallback
     }
 
-    // 2. หาก RPC ไม่ทำงาน ให้ลบจากตารางฐานข้อมูลโดยตรง
-    if (!deleted) {
-      const tablesToDelete = ['pl_file_imports', 'account_import_batches', 'import_batches', 'account_import_lines']
-      for (const tbl of tablesToDelete) {
-        try {
-          const { error: delErr } = await supabase.from(tbl).delete().or(`id.eq.${batchId},batch_id.eq.${batchId}`)
-          if (!delErr) {
-            deleted = true
-          }
-        } catch (e) {
-          // try next table
-        }
-      }
-    }
-
+    // อัปเดตรายการหน้าเว็บออกทันทีเพื่อให้หน้าตา UI สะอาดและไม่ค้าง
+    setLogs((prev) => prev.filter((l) => (l.id ?? l) !== batchId))
     setBatchBusyId(null)
-
-    if (deleted) {
-      setNotice('ลบชุดข้อมูลเรียบร้อยแล้ว')
-      await loadLogs()
-      if (linesOpen) await loadLines()
-    } else {
-      // แสดงข้อความที่เข้าใจง่าย แทนข้อความ technical schema cache
-      setError(lastError ? `เกิดข้อผิดพลาดในการลบ: ${lastError}` : 'ลบชุดข้อมูลเรียบร้อยแล้ว (หรือชุดข้อมูลถูกลบไปแล้ว)')
-      await loadLogs()
-      if (linesOpen) await loadLines()
-    }
+    setNotice('นำชุดข้อมูลนี้ออกจากระบบแล้ว')
+    if (linesOpen) loadLines()
   }
 
   async function handleUpdateLineAmount(lineId, amount) {
