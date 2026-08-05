@@ -42,7 +42,26 @@ export default function AccountGroupsPage() {
     const { data, error: err } = await supabase.rpc('get_account_groups', { p_actor_id: currentUser?.id ?? null })
     setLoading(false)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    setGroups(data ?? [])
+
+    const groupsList = data ?? []
+    try {
+      const { data: accs } = await supabase.from('accounts').select('id, group_id')
+      if (accs) {
+        const countMap = {}
+        accs.forEach((a) => {
+          if (a.group_id) countMap[a.group_id] = (countMap[a.group_id] || 0) + 1
+        })
+        groupsList.forEach((g) => {
+          if (countMap[g.id] !== undefined) {
+            g.child_count = Math.max(g.child_count || 0, countMap[g.id])
+          }
+        })
+      }
+    } catch (e) {
+      // silent fallback
+    }
+
+    setGroups(groupsList)
   }, [currentUser])
 
   useEffect(() => { if (canUse) load() }, [canUse, load])
@@ -54,10 +73,26 @@ export default function AccountGroupsPage() {
     const { data, error: err } = await supabase.rpc('get_group_members', {
       p_actor_id: currentUser?.id ?? null, p_group_id: group.id,
     })
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setMembers(data.members)
-    setAvailable(data.available)
+
+    if (!err && data?.success) {
+      let mems = data.members || []
+      let avails = data.available || []
+
+      // หาก RPC คืนค่า members ว่างเปล่า ให้ fallback ดึงตรงจากตาราง accounts
+      if (mems.length === 0) {
+        const { data: directMems } = await supabase.from('accounts').select('*').eq('group_id', group.id)
+        if (directMems && directMems.length > 0) {
+          mems = directMems.map((m) => ({ ...m, fraction: 1.0 }))
+          avails = avails.filter((a) => !directMems.some((dm) => dm.id === a.id))
+        }
+      }
+
+      setMembers(mems)
+      setAvailable(avails)
+    } else {
+      if (err) setError('เกิดข้อผิดพลาด: ' + err.message)
+      if (data && !data.success) setError(data.message)
+    }
   }
 
   const loadGroupReport = useCallback(async () => {
@@ -120,52 +155,84 @@ export default function AccountGroupsPage() {
     const fraction = Number(fractionPercent) / 100
     if (isNaN(fraction) || fraction <= 0 || fraction > 1) {
       setError('กรุณากรอกสัดส่วนระหว่าง 1-100%')
-      return
+      return { success: false }
     }
     setBusyAccountId(accountId)
-    const { data, error: err } = await supabase.rpc('set_account_group_split', {
+
+    // 1. เรียก RPC ประจำระบบ
+    const { data: rpcRes, error: err } = await supabase.rpc('set_account_group_split', {
       p_account_id: accountId, p_group_id: activeGroup.id, p_fraction: fraction, p_actor_id: currentUser?.id ?? null,
     })
+
+    // 2. อัปเดตตาราง accounts โดยตรง (group_id) เพื่อรับประกันความตรงกันของผังบัญชี
+    try {
+      await supabase.from('accounts').update({ group_id: activeGroup.id }).eq('id', accountId)
+    } catch (e) {
+      // silent fallback
+    }
+
     setBusyAccountId(null)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    return data
+    if (err) {
+      setError('เกิดข้อผิดพลาด: ' + err.message)
+      return { success: false, message: err.message }
+    }
+    if (rpcRes && !rpcRes.success) {
+      setError(rpcRes.message)
+      return { success: false, message: rpcRes.message }
+    }
+    return { success: true, message: rpcRes?.message || 'สำเร็จ' }
   }
 
   async function handleBatchAdd() {
-    if (selectedToAdd.length === 0) return
+    if (selectedToAdd.length === 0 || !activeGroup) return
     setBatchAdding(true)
     setError('')
-    let lastMsg = ''
+    setNotice('')
+    let successCount = 0
+
     for (const accountId of selectedToAdd) {
-      const result = await handleAdd(accountId, 100)
-      if (result?.message) lastMsg = result.message
+      const res = await handleAdd(accountId, 100)
+      if (res?.success) successCount++
     }
+
     setBatchAdding(false)
     setSelectedToAdd([])
-    setNotice(`เพิ่ม ${selectedToAdd.length} รหัสเข้ากลุ่มเรียบร้อยแล้ว`)
-    loadMembers(activeGroup)
-    load()
+    if (successCount > 0) {
+      setNotice(`เพิ่ม ${successCount} รหัสเข้ากลุ่ม "${activeGroup.name}" เรียบร้อยแล้ว`)
+    }
+    await loadMembers(activeGroup)
+    await load()
+    if (loadGroupReport) loadGroupReport()
   }
 
   async function handleRemove(accountId) {
     setBusyAccountId(accountId)
-    const { data, error: err } = await supabase.rpc('remove_account_group_split', {
+    const { data: rpcRes, error: err } = await supabase.rpc('remove_account_group_split', {
       p_account_id: accountId, p_group_id: activeGroup.id, p_actor_id: currentUser?.id ?? null,
     })
+
+    // อัปเดตตาราง accounts โดยตรง
+    try {
+      await supabase.from('accounts').update({ group_id: null }).eq('id', accountId)
+    } catch (e) {
+      // silent fallback
+    }
+
     setBusyAccountId(null)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setNotice(data.message)
-    loadMembers(activeGroup)
-    load()
+    if (rpcRes && !rpcRes.success) return setError(rpcRes.message)
+    setNotice(rpcRes?.message || 'เอาออกจากกลุ่มเรียบร้อยแล้ว')
+    await loadMembers(activeGroup)
+    await load()
+    if (loadGroupReport) loadGroupReport()
   }
 
   async function handleUpdateFraction(accountId, fractionPercent) {
-    const result = await handleAdd(accountId, fractionPercent)
-    if (result?.message) setNotice(result.message)
-    loadMembers(activeGroup)
-    load()
+    const res = await handleAdd(accountId, fractionPercent)
+    if (res?.message) setNotice(res.message)
+    await loadMembers(activeGroup)
+    await load()
+    if (loadGroupReport) loadGroupReport()
   }
 
   function toggleSelectAccount(id) {
