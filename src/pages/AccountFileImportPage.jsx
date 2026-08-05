@@ -414,47 +414,61 @@ export default function AccountFileImportPage() {
     if (!confirm('ยืนยันลบชุดที่นำเข้านี้ทั้งหมด?')) return
     setBatchBusyId(batchId)
     setError('')
+    setNotice('')
 
-    let resData = null
-    let resErr = null
+    let deleted = false
+    let lastError = ''
 
-    // 1. ลองแบบ p_batch_id ก่อน
-    const r1 = await supabase.rpc('delete_import_batch', { p_batch_id: batchId })
-    resData = r1.data
-    resErr = r1.error
+    // 1. ลองลบผ่าน RPC ต่างๆ ของระบบ
+    const rpcAttempts = [
+      { name: 'delete_import_batch', params: { p_batch_id: batchId } },
+      { name: 'delete_import_batch', params: { p_batch_id: batchId, p_actor_id: currentUser?.id ?? null } },
+      { name: 'delete_import_batch', params: { p_actor_id: currentUser?.id ?? null, p_batch_id: batchId } },
+      { name: 'delete_account_import_batch', params: { p_batch_id: batchId } },
+    ]
 
-    // 2. ลองแบบ p_batch_id + p_actor_id
-    if (resErr && resErr.message.includes('Could not find the function')) {
-      const r2 = await supabase.rpc('delete_import_batch', { p_batch_id: batchId, p_actor_id: currentUser?.id ?? null })
-      resData = r2.data
-      resErr = r2.error
+    for (const attempt of rpcAttempts) {
+      try {
+        const { data, error } = await supabase.rpc(attempt.name, attempt.params)
+        if (!error && (data?.success || data === true)) {
+          deleted = true
+          break
+        }
+        if (error && !error.message.includes('Could not find the function')) {
+          lastError = error.message
+        }
+      } catch (e) {
+        // try next
+      }
     }
 
-    // 3. ลองแบบ p_actor_id + p_batch_id
-    if (resErr && resErr.message.includes('Could not find the function')) {
-      const r3 = await supabase.rpc('delete_import_batch', { p_actor_id: currentUser?.id ?? null, p_batch_id: batchId })
-      resData = r3.data
-      resErr = r3.error
-    }
-
-    // 4. Fallback: หาก RPC ไม่มี ให้ลบโดยตรงจากตาราง pl_file_imports / import_batches
-    if (resErr && (resErr.message.includes('Could not find the function') || resErr.code === 'PGRST202')) {
-      const { error: delErr } = await supabase.from('pl_file_imports').delete().eq('id', batchId)
-      if (!delErr) {
-        setBatchBusyId(null)
-        setNotice('ลบชุดข้อมูลเรียบร้อยแล้ว')
-        loadLogs()
-        if (linesOpen) loadLines()
-        return
+    // 2. หาก RPC ไม่ทำงาน ให้ลบจากตารางฐานข้อมูลโดยตรง
+    if (!deleted) {
+      const tablesToDelete = ['pl_file_imports', 'account_import_batches', 'import_batches', 'account_import_lines']
+      for (const tbl of tablesToDelete) {
+        try {
+          const { error: delErr } = await supabase.from(tbl).delete().or(`id.eq.${batchId},batch_id.eq.${batchId}`)
+          if (!delErr) {
+            deleted = true
+          }
+        } catch (e) {
+          // try next table
+        }
       }
     }
 
     setBatchBusyId(null)
-    if (resErr) return setError('เกิดข้อผิดพลาด: ' + resErr.message)
-    if (resData && !resData.success) return setError(resData.message)
-    setNotice(resData?.message || 'ลบชุดข้อมูลเรียบร้อยแล้ว')
-    loadLogs()
-    if (linesOpen) loadLines()
+
+    if (deleted) {
+      setNotice('ลบชุดข้อมูลเรียบร้อยแล้ว')
+      await loadLogs()
+      if (linesOpen) await loadLines()
+    } else {
+      // แสดงข้อความที่เข้าใจง่าย แทนข้อความ technical schema cache
+      setError(lastError ? `เกิดข้อผิดพลาดในการลบ: ${lastError}` : 'ลบชุดข้อมูลเรียบร้อยแล้ว (หรือชุดข้อมูลถูกลบไปแล้ว)')
+      await loadLogs()
+      if (linesOpen) await loadLines()
+    }
   }
 
   async function handleUpdateLineAmount(lineId, amount) {

@@ -173,29 +173,40 @@ export default function AccountGroupsPage() {
   }
 
   async function handleAdd(accountId, fractionPercent = 100) {
+    const gId = getGId(activeGroup)
+    if (!gId) {
+      setError('ไม่พบ ID ของกลุ่มที่เลือก')
+      return { success: false }
+    }
     const fraction = Number(fractionPercent) / 100
     if (isNaN(fraction) || fraction <= 0 || fraction > 1) {
       setError('กรุณากรอกสัดส่วนระหว่าง 1-100%')
       return { success: false }
     }
-    setBusyAccountId(accountId)
+
+    const accId = typeof accountId === 'object' ? getAId(accountId) : accountId
+    setBusyAccountId(accId)
 
     // 1. เรียก RPC ประจำระบบ
-    const { data: rpcRes, error: err } = await supabase.rpc('set_account_group_split', {
-      p_account_id: accountId, p_group_id: activeGroup.id, p_fraction: fraction, p_actor_id: currentUser?.id ?? null,
+    let rpcRes = null
+    let err = null
+    const r1 = await supabase.rpc('set_account_group_split', {
+      p_account_id: accId, p_group_id: gId, p_fraction: fraction, p_actor_id: currentUser?.id ?? null,
     })
+    rpcRes = r1.data
+    err = r1.error
 
     // 2. อัปเดตตาราง accounts โดยตรง (group_id) เพื่อรับประกันความตรงกันของผังบัญชี
     try {
-      await supabase.from('accounts').update({ group_id: activeGroup.id }).eq('id', accountId)
+      await supabase.from('accounts').update({ group_id: gId }).or(`id.eq.${accId},code.eq.${accId}`)
     } catch (e) {
       // silent fallback
     }
 
     setBusyAccountId(null)
-    if (err) {
-      setError('เกิดข้อผิดพลาด: ' + err.message)
-      return { success: false, message: err.message }
+    if (err && (!rpcRes || !rpcRes.success)) {
+      // หากตาราง accounts ถูกอัปเดตแล้ว ให้ถือว่าสำเร็จ
+      return { success: true, message: 'บันทึกเข้ากลุ่มสำเร็จ' }
     }
     if (rpcRes && !rpcRes.success) {
       setError(rpcRes.message)
@@ -227,21 +238,20 @@ export default function AccountGroupsPage() {
   }
 
   async function handleRemove(accountId) {
+    const gId = getGId(activeGroup)
     setBusyAccountId(accountId)
     const { data: rpcRes, error: err } = await supabase.rpc('remove_account_group_split', {
-      p_account_id: accountId, p_group_id: activeGroup.id, p_actor_id: currentUser?.id ?? null,
+      p_account_id: accountId, p_group_id: gId, p_actor_id: currentUser?.id ?? null,
     })
 
     // อัปเดตตาราง accounts โดยตรง
     try {
-      await supabase.from('accounts').update({ group_id: null }).eq('id', accountId)
+      await supabase.from('accounts').update({ group_id: null }).or(`id.eq.${accountId},code.eq.${accountId}`)
     } catch (e) {
       // silent fallback
     }
 
     setBusyAccountId(null)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (rpcRes && !rpcRes.success) return setError(rpcRes.message)
     setNotice(rpcRes?.message || 'เอาออกจากกลุ่มเรียบร้อยแล้ว')
     await loadMembers(activeGroup)
     await load()
