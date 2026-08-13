@@ -3,7 +3,11 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import ExportModal from '../components/ExportModal'
-import { MONTH_SHORT, buildExecutivePivotData } from '../lib/executiveReportPivot'
+import {
+  MONTH_SHORT,
+  PIVOT_CATEGORY_OPTIONS,
+  buildExecutivePivotData,
+} from '../lib/executiveReportPivot'
 
 function formatBaht(n) {
   if (n === null || n === undefined || isNaN(n)) return '-'
@@ -56,7 +60,47 @@ export default function ExecutiveReportPage({ onNavigate }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // State for Custom Mapping Overrides per year
+  const [customMappings, setCustomMappings] = useState({})
+  const [showAuditModal, setShowAuditModal] = useState(false)
+
   const canUse = hasPagePermission(currentUser, 'exec-report')
+
+  // Load custom mappings from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`gocost_pivot_custom_mappings_${year}`)
+      if (saved) {
+        setCustomMappings(JSON.parse(saved))
+      } else {
+        setCustomMappings({})
+      }
+    } catch {
+      setCustomMappings({})
+    }
+  }, [year])
+
+  // Save custom mappings to localStorage
+  const handleUpdateMapping = (code, targetCategory) => {
+    setCustomMappings((prev) => {
+      const updated = { ...prev, [code]: targetCategory }
+      try {
+        localStorage.setItem(`gocost_pivot_custom_mappings_${year}`, JSON.stringify(updated))
+      } catch (err) {
+        console.error('Failed to save custom mappings:', err)
+      }
+      return updated
+    })
+  }
+
+  const handleResetMappings = () => {
+    setCustomMappings({})
+    try {
+      localStorage.removeItem(`gocost_pivot_custom_mappings_${year}`)
+    } catch (err) {
+      console.error('Failed to reset custom mappings:', err)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -77,8 +121,8 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
   const pivotData = useMemo(() => {
     if (!rawData) return null
-    return buildExecutivePivotData(rawData, year, month)
-  }, [rawData, year, month])
+    return buildExecutivePivotData(rawData, year, month, customMappings)
+  }, [rawData, year, month, customMappings])
 
   if (!canUse) {
     return (
@@ -91,6 +135,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
   return (
     <div className="max-w-full mx-auto space-y-6">
+      {/* Header Controls */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">รายงานผู้บริหาร</h1>
@@ -98,7 +143,19 @@ export default function ExecutiveReportPage({ onNavigate }) {
             ประมาณการกำไร(ขาดทุน)เบื้องต้น สรุปรายรับ-รายจ่าย (ตาราง Pivot ตาม Template Excel)
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowAuditModal(true)}
+            className="px-3 py-2 bg-gradient-to-r from-ocean to-indigo-600 text-white font-medium text-xs rounded-xl shadow-sm hover:opacity-95 transition-all flex items-center gap-1.5"
+          >
+            <span>🛡️ ด่านตรวจสอบและปรับแต่งรหัสบัญชี</span>
+            {pivotData?.unmatchedAccounts?.length > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                {pivotData.unmatchedAccounts.length}
+              </span>
+            )}
+          </button>
+
           {pivotData && (
             <ExportModal
               fileNameBase={`ประมาณการกำไร(ขาดทุน)_ผู้บริหาร_${year}`}
@@ -129,27 +186,42 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
       {!loading && pivotData && (
         <>
-          {/* Warning Banner สำหรับรหัสบัญชีที่ไม่ได้อยู่ใน Template */}
-          {pivotData.unmatchedAccounts && pivotData.unmatchedAccounts.length > 0 && (
-            <div className="bg-amber-50 border border-amber-300/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-start gap-2">
-                <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
-                <div>
-                  <p className="text-amber-800 font-medium text-sm">
-                    พบรหัสบัญชีเพิ่มเติมในระบบที่ไม่อยู่ใน Template Standard จำนวน {pivotData.unmatchedAccounts.length} รหัส
-                  </p>
-                  <p className="text-amber-600 text-xs mt-0.5">
-                    รหัสเหล่านี้ถูกแสดงไว้ในส่วน "รหัสบัญชีอื่นๆ" ท้ายตาราง
-                  </p>
-                </div>
+          {/* Data Audit & Validation Status Banner */}
+          <div
+            className={`border rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${
+              pivotData.unmatchedAccounts?.length > 0
+                ? 'bg-amber-50/90 border-amber-300/70'
+                : 'bg-emerald-50/80 border-emerald-300/60'
+            }`}
+          >
+            <div className="flex items-start gap-2.5">
+              <span className="text-xl mt-0.5">
+                {pivotData.unmatchedAccounts?.length > 0 ? '⚠️' : '✅'}
+              </span>
+              <div>
+                <p className="font-semibold text-sm text-ink-900">
+                  {pivotData.unmatchedAccounts?.length > 0
+                    ? `พบรหัสบัญชี ${pivotData.unmatchedAccounts.length} รหัส ที่ไม่อยู่ใน Template Standard`
+                    : 'ตรวจสอบข้อมูลสมบูรณ์ 100%: ทุกรหัสบัญชีถูกจัดหมวดหมู่อย่างถูกต้อง'}
+                </p>
+                <p className="text-xs text-ink-600 mt-0.5">
+                  พบข้อมูลรหัสบัญชีทั้งหมด {pivotData.allDetectedAccounts?.length || 0} รหัส | รวมยอดต้นทุนสินค้า COGS ={' '}
+                  <span className="font-bold text-amber-900">{formatBaht(pivotData.cogsTotal)}</span> บาท |
+                  รวมค่าใช้จ่าย = <span className="font-bold text-amber-900">{formatBaht(pivotData.grandTotalExpSum)}</span> บาท
+                </p>
               </div>
-              {onNavigate && (
-                <button onClick={() => onNavigate('account-groups')} className="btn-primary text-xs px-3 py-1.5 shrink-0">
-                  📂 ไปผังบัญชี / จัดกลุ่ม
-                </button>
-              )}
             </div>
-          )}
+            <button
+              onClick={() => setShowAuditModal(true)}
+              className={`text-xs font-semibold px-3.5 py-2 rounded-lg transition-all shadow-sm ${
+                pivotData.unmatchedAccounts?.length > 0
+                  ? 'bg-amber-600 text-white hover:bg-amber-700'
+                  : 'bg-emerald-700 text-white hover:bg-emerald-800'
+              }`}
+            >
+              {pivotData.unmatchedAccounts?.length > 0 ? '🛠️ แก้ไขและระบุหมวดหมู่เรียลไทม์' : '⚙️ ปรับแต่งหมวดหมู่รหัสบัญชี'}
+            </button>
+          </div>
 
           {/* Pivot Table Container */}
           <div className="glass p-4 overflow-x-auto">
@@ -160,9 +232,15 @@ export default function ExecutiveReportPage({ onNavigate }) {
                 <span> (ใช้คำนวณคอลัมน์ เฉลี่ย/เดือน)</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-sage inline-block"></span> รายได้</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span> ค่าใช้จ่าย</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-600 inline-block"></span> กำไรสุทธิ</span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded bg-sage inline-block"></span> รายได้
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span> ต้นทุน & ค่าใช้จ่าย
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded bg-blue-600 inline-block"></span> กำไรสุทธิ
+                </span>
               </div>
             </div>
 
@@ -262,7 +340,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
                       r.total >= 0 ? 'bg-blue-50/90 text-blue-900 border-blue-400' : 'bg-rose-50/90 text-rose-900 border-rose-400'
                     }`
                   else if (isSubtotal) rowStyle = 'bg-white/70 font-semibold border-b border-black/15 text-ink-900'
-                  else if (isCogs) rowStyle = 'bg-amber-50/40 font-semibold border-b border-black/10'
+                  else if (isCogs) rowStyle = 'bg-amber-100/60 font-bold border-y-2 border-amber-300 text-amber-950'
                   else if (isFormula) rowStyle = 'bg-ink-50/60 font-semibold text-ink-800'
 
                   return (
@@ -293,8 +371,14 @@ export default function ExecutiveReportPage({ onNavigate }) {
                 {pivotData.unmatchedAccounts && pivotData.unmatchedAccounts.length > 0 && (
                   <>
                     <tr className="bg-amber-100/80 border-t-2 border-amber-400">
-                      <td colSpan={2} className="py-2 px-3 font-bold text-amber-900 text-xs">
-                        ⚠️ รหัสบัญชีอื่นๆ (ไม่ได้ระบุใน Template Standard)
+                      <td colSpan={2} className="py-2 px-3 font-bold text-amber-900 text-xs flex items-center justify-between">
+                        <span>⚠️ รหัสบัญชีอื่นๆ (ไม่อยู่ใน Template Standard)</span>
+                        <button
+                          onClick={() => setShowAuditModal(true)}
+                          className="text-[11px] underline text-amber-950 font-normal"
+                        >
+                          คลิกเพื่อระบุหมวดหมู่เรียลไทม์
+                        </button>
                       </td>
                       <td colSpan={15}></td>
                     </tr>
@@ -321,6 +405,185 @@ export default function ExecutiveReportPage({ onNavigate }) {
           </div>
         </>
       )}
+
+      {/* Real-time Data Audit & Mapping Modal */}
+      {showAuditModal && pivotData && (
+        <AccountMappingAuditModal
+          pivotData={pivotData}
+          year={year}
+          customMappings={customMappings}
+          onUpdateMapping={handleUpdateMapping}
+          onResetMappings={handleResetMappings}
+          onClose={() => setShowAuditModal(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Real-time Data Audit & Custom Mapping Modal ───
+function AccountMappingAuditModal({
+  pivotData,
+  year,
+  customMappings,
+  onUpdateMapping,
+  onResetMappings,
+  onClose,
+}) {
+  const [searchTerm, setSearchTerm] = useState('')
+  const [filterType, setFilterType] = useState('all') // 'all' | 'unmapped' | 'cogs'
+
+  const filteredAccounts = useMemo(() => {
+    const list = pivotData.allDetectedAccounts || []
+    return list.filter((acc) => {
+      if (filterType === 'unmapped' && acc.isMapped) return false
+      if (filterType === 'cogs' && !acc.isCogs) return false
+      if (!searchTerm) return true
+      const term = searchTerm.toLowerCase()
+      return acc.code.toLowerCase().includes(term) || (acc.name && acc.name.toLowerCase().includes(term))
+    })
+  }, [pivotData, filterType, searchTerm])
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="glass bg-white max-w-4xl w-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-black/10">
+        {/* Modal Header */}
+        <div className="px-6 py-4 border-b border-black/10 flex items-center justify-between bg-gradient-to-r from-ocean/10 to-indigo-50">
+          <div>
+            <h2 className="text-lg font-bold text-ink-900 flex items-center gap-2">
+              <span>🛡️ ด่านตรวจสอบความถูกต้องและจัดหมวดหมู่รหัสบัญชี (ปี {year})</span>
+            </h2>
+            <p className="text-xs text-ink-600 mt-0.5">
+              ตรวจพบรหัสบัญชีทั้งหมด {pivotData.allDetectedAccounts?.length || 0} รหัส — คุณสามารถปรับเปลี่ยนหมวดหมู่ได้แบบเรียลไทม์เพื่อความแม่นยำ 100%
+            </p>
+          </div>
+          <button onClick={onClose} className="text-ink-400 hover:text-ink-900 text-xl font-bold p-1">
+            ✕
+          </button>
+        </div>
+
+        {/* Modal Controls */}
+        <div className="p-4 border-b border-black/10 bg-ink-50/50 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setFilterType('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterType === 'all' ? 'bg-ocean text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
+              }`}
+            >
+              ทั้งหมด ({pivotData.allDetectedAccounts?.length || 0})
+            </button>
+            <button
+              onClick={() => setFilterType('unmapped')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterType === 'unmapped' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
+              }`}
+            >
+              ⚠️ ยังไม่อยู่ใน Template ({pivotData.unmatchedAccounts?.length || 0})
+            </button>
+            <button
+              onClick={() => setFilterType('cogs')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterType === 'cogs' ? 'bg-amber-900 text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
+              }`}
+            >
+              📦 ต้นทุนสินค้า ({pivotData.cogsCodes?.length || 0})
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="ค้นหารหัส หรือ ชื่อบัญชี..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="glass-input text-xs w-56 px-3 py-1.5"
+            />
+            {Object.keys(customMappings).length > 0 && (
+              <button
+                onClick={onResetMappings}
+                className="text-xs text-rose-600 hover:underline px-2 py-1"
+              >
+                คืนค่าเริ่มต้น
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Modal Body Table */}
+        <div className="p-4 overflow-y-auto flex-1">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b-2 border-black/10 text-ink-700 font-bold bg-ink-100/60">
+                <th className="text-left py-2 px-2 w-28">รหัสบัญชี</th>
+                <th className="text-left py-2 px-2">ชื่อบัญชี</th>
+                <th className="text-right py-2 px-2 w-32">ยอดรวมทั้งปี</th>
+                <th className="text-left py-2 px-2 w-72">จัดเข้าหมวดหมู่ (เรียลไทม์)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAccounts.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="text-center py-8 text-ink-400">
+                    ไม่พบรหัสบัญชีที่ตรงกับเงื่อนไข
+                  </td>
+                </tr>
+              ) : (
+                filteredAccounts.map((acc) => {
+                  const currentCategory = acc.userMapping || 'auto'
+                  return (
+                    <tr key={acc.code} className="border-b border-black/5 hover:bg-black/[0.015]">
+                      <td className="py-2 px-2 font-mono font-semibold text-ocean">{acc.code}</td>
+                      <td className="py-2 px-2 font-medium text-ink-800">
+                        {acc.name}
+                        {acc.isCogs && (
+                          <span className="ml-2 bg-amber-100 text-amber-900 text-[10px] px-1.5 py-0.5 rounded font-bold">
+                            COGS
+                          </span>
+                        )}
+                        {!acc.isMapped && currentCategory === 'auto' && (
+                          <span className="ml-2 bg-rose-100 text-rose-800 text-[10px] px-1.5 py-0.5 rounded font-bold">
+                            ยังไม่อยู่ใน Template
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-ink-900 tabular-nums">
+                        {formatBaht(acc.total)}
+                      </td>
+                      <td className="py-2 px-2">
+                        <select
+                          value={currentCategory}
+                          onChange={(e) => onUpdateMapping(acc.code, e.target.value)}
+                          className="w-full text-xs border border-black/20 rounded-lg px-2 py-1 bg-white font-medium text-ink-900 focus:border-ocean"
+                        >
+                          {PIVOT_CATEGORY_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="px-6 py-3 border-t border-black/10 bg-ink-50 flex items-center justify-between">
+          <p className="text-xs text-ink-500">
+            การปรับแต่งทุกรายการจะบันทึกและคำนวณสูตรตาราง Pivot ใหม่ทันที
+          </p>
+          <button
+            onClick={onClose}
+            className="btn-primary text-xs px-5 py-2"
+          >
+            ตกลงและปิดหน้าต่าง
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

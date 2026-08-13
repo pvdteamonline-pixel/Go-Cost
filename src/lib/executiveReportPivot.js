@@ -6,6 +6,34 @@
 
 export const MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
+// Category Options for Custom Mapping
+export const PIVOT_CATEGORY_OPTIONS = [
+  { value: 'auto', label: '⚡ อัตโนมัติ (ตามผังมาตรฐาน)' },
+  { value: 'cogs', label: '📦 ต้นทุนสินค้า (COGS)' },
+  { value: 'rev_4100_01', label: '💰 รายได้จากการขาย (4100-01)' },
+  { value: 'rev_4100_05', label: '✈️ รายได้จากการขายต่างประเทศ (4100-05)' },
+  { value: 'rev_4200_08', label: '💵 รายได้อื่น ๆ (4200-08)' },
+  { value: 'rev_4100_03', label: '↩️ หัก รับคืนสินค้า (4100-03)' },
+  { value: 'rev_4100_04', label: '✂️ หัก ส่วนลดจ่าย (4100-04)' },
+  { value: 'rev_5130_02', label: '➕ บวก ส่วนลดรับ (5130-02)' },
+  { value: 'cat_3_1', label: '3.1 ต้นทุนในการขาย' },
+  { value: 'cat_3_2_1', label: '3.2.1 เงินเดือนฝ่ายขาย' },
+  { value: 'cat_3_2_2', label: '3.2.2 ค่านายหน้า/คอมมิชชั่น' },
+  { value: 'cat_3_3', label: '3.3 ค่าใช้จ่ายในการขาย/ส่งเสริมการขาย' },
+  { value: 'cat_3_4', label: '3.4 ค่าใช้จ่ายในการขาย/ค่าขนส่ง/เดินทาง' },
+  { value: 'cat_3_5', label: '3.5 ค่าใช้จ่ายในการขาย/แพลตฟอร์ม' },
+  { value: 'cat_3_6', label: '3.6 ค่าใช้จ่ายในการบริหาร' },
+  { value: 'cat_3_7', label: '3.7 สวัสดิการ' },
+  { value: 'cat_3_8', label: '3.8 ค่าเครื่องเขียน/วัสดุสิ้นเปลือง/ค่าซ่อมแซม' },
+  { value: 'cat_3_9', label: '3.9 ค่าบริการ/ค่าจ้าง' },
+  { value: 'cat_3_10', label: '3.10 ค่าเช่า' },
+  { value: 'cat_3_11', label: '3.11 ค่าสาธารณูปโภค' },
+  { value: 'cat_3_12', label: '3.12 ค่าเบี้ยประกัน/ธรรมเนียมต่างๆ' },
+  { value: 'cat_3_13', label: '3.13 อื่นๆ' },
+  { value: 'cat_3_14', label: '3.14 ค่าดอกเบี้ย' },
+  { value: 'cat_3_15', label: '3.15 อื่นๆ/ไม่ถือเป็นรายจ่ายจริง/บวกกับ' },
+]
+
 // Template Excel Row Specification
 export const EXEC_REPORT_PIVOT_STRUCTURE = [
   // ─── ส่วนที่ 1: รายได้ ───
@@ -14,13 +42,13 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
     title: 'ส่วนที่ 1: รายได้',
     id: 'sec-1-revenue',
   },
-  { code: '4100-01', name: 'รายได้จากการขาย', type: 'item', section: 'revenue' },
-  { code: '4100-05', name: 'รายได้จากการขายต่างประเทศ', type: 'item', section: 'revenue' },
-  { code: '4200-08', name: 'รายได้อื่น ๆ', type: 'item', section: 'revenue' },
-  { code: '4100-03', name: 'หัก รับคืนสินค้า', type: 'item', section: 'revenue', deduct: true },
+  { code: '4100-01', name: 'รายได้จากการขาย', type: 'item', section: 'revenue', categoryKey: 'rev_4100_01' },
+  { code: '4100-05', name: 'รายได้จากการขายต่างประเทศ', type: 'item', section: 'revenue', categoryKey: 'rev_4100_05' },
+  { code: '4200-08', name: 'รายได้อื่น ๆ', type: 'item', section: 'revenue', categoryKey: 'rev_4200_08' },
+  { code: '4100-03', name: 'หัก รับคืนสินค้า', type: 'item', section: 'revenue', deduct: true, categoryKey: 'rev_4100_03' },
   { code: '', name: 'รายได้ขั้นต้น', type: 'formula', id: 'gross-revenue' },
-  { code: '4100-04', name: 'หัก ส่วนลดจ่าย', type: 'item', section: 'revenue', deduct: true },
-  { code: '5130-02', name: 'บวก ส่วนลดรับ', type: 'item', section: 'revenue', add: true },
+  { code: '4100-04', name: 'หัก ส่วนลดจ่าย', type: 'item', section: 'revenue', deduct: true, categoryKey: 'rev_4100_04' },
+  { code: '5130-02', name: 'บวก ส่วนลดรับ', type: 'item', section: 'revenue', add: true, categoryKey: 'rev_5130_02' },
   { code: '', name: 'รวมรายได้', type: 'formula', id: 'total-revenue', isBold: true, showAvg: true },
 
   // ─── ส่วนที่ 2: ต้นทุนสินค้า และกำไรขั้นต้น ───
@@ -38,6 +66,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-1',
+    categoryKey: 'cat_3_1',
     catNum: '3.1',
     title: '3.1 ต้นทุนในการขาย',
     items: [
@@ -55,6 +84,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
     subGroups: [
       {
         subId: '3-2-1',
+        categoryKey: 'cat_3_2_1',
         title: 'เงินเดือนฝ่ายขาย',
         items: [
           { code: '5130-08', name: 'เงินเดือน-ฝ่ายขาย' },
@@ -64,6 +94,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
       },
       {
         subId: '3-2-2',
+        categoryKey: 'cat_3_2_2',
         title: 'ค่านายหน้า/คอมมิชชั่น',
         items: [
           { code: '6000-01', name: 'ค่านายหน้า 1/2' },
@@ -76,6 +107,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-3',
+    categoryKey: 'cat_3_3',
     catNum: '3.3',
     title: '3.3 ค่าใช้จ่ายในการขาย/ส่งเสริมการขาย',
     items: [
@@ -94,6 +126,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-4',
+    categoryKey: 'cat_3_4',
     catNum: '3.4',
     title: '3.4 ค่าใช้จ่ายในการขาย/ค่าขนส่ง/เดินทาง',
     items: [
@@ -112,6 +145,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-5',
+    categoryKey: 'cat_3_5',
     catNum: '3.5',
     title: '3.5 ค่าใช้จ่ายในการขาย/แพลตฟอร์ม',
     items: [
@@ -125,6 +159,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-6',
+    categoryKey: 'cat_3_6',
     catNum: '3.6',
     title: '3.6 ค่าใช้จ่ายในการบริหาร',
     items: [
@@ -151,6 +186,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-7',
+    categoryKey: 'cat_3_7',
     catNum: '3.7',
     title: '3.7 สวัสดิการ',
     items: [
@@ -162,6 +198,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-8',
+    categoryKey: 'cat_3_8',
     catNum: '3.8',
     title: '3.8 ค่าเครื่องเขียน/วัสดุสิ้นเปลือง/ค่าซ่อมแซม',
     items: [
@@ -176,6 +213,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-9',
+    categoryKey: 'cat_3_9',
     catNum: '3.9',
     title: '3.9 ค่าบริการ/ค่าจ้าง',
     items: [
@@ -188,6 +226,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-10',
+    categoryKey: 'cat_3_10',
     catNum: '3.10',
     title: '3.10 ค่าเช่า',
     items: [
@@ -198,6 +237,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-11',
+    categoryKey: 'cat_3_11',
     catNum: '3.11',
     title: '3.11 ค่าสาธารณูปโภค',
     items: [
@@ -210,6 +250,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-12',
+    categoryKey: 'cat_3_12',
     catNum: '3.12',
     title: '3.12 ค่าเบี้ยประกัน/ธรรมเนียมต่างๆ',
     items: [
@@ -226,6 +267,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-13',
+    categoryKey: 'cat_3_13',
     catNum: '3.13',
     title: '3.13 อื่นๆ',
     items: [
@@ -235,6 +277,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-14',
+    categoryKey: 'cat_3_14',
     catNum: '3.14',
     title: '3.14 ค่าดอกเบี้ย',
     items: [
@@ -245,6 +288,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
   {
     type: 'cat-group',
     id: 'cat-3-15',
+    categoryKey: 'cat_3_15',
     catNum: '3.15',
     title: '3.15 อื่นๆ/ไม่ถือเป็นรายจ่ายจริง/บวกกับ',
     items: [
@@ -269,16 +313,42 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
 ]
 
 /**
+ * Checks if an account code or name represents Cost of Goods Sold (COGS)
+ */
+export function isCogsAccount(acc) {
+  if (!acc || !acc.code) return false
+  const cleanCode = acc.code.trim()
+  const cleanName = (acc.name || '').trim()
+
+  // Exclude specific 3.1 / 3.2 expense items that start with 5130
+  if (['5130-04', '5130-06', '5130-07', '5130-12', '5130-08', '5130-02'].includes(cleanCode)) {
+    return false
+  }
+
+  // Account codes for COGS: 50xx, 51xx, 52xx or name matches
+  if (/^5[012]\d{2}/.test(cleanCode) || /^5\d{3}/.test(cleanCode)) {
+    return true
+  }
+
+  // Name keywords for COGS
+  if (/ต้นทุนสินค้า|ต้นทุนขาย|ต้นทุนผลิต|วัตถุดิบ|COGS/i.test(cleanName)) {
+    return true
+  }
+
+  return false
+}
+
+/**
  * Builds the complete Pivot dataset for rendering and exporting.
  * @param {Object} rawData - Response data from RPC / DB query (contains rawAccounts, groups, etc.)
  * @param {number} year - Selected year
  * @param {string} monthFilter - '' for full year, or '1'-'12' for selected month
+ * @param {Object} customMappings - Map of account code -> custom category key
  */
-export function buildExecutivePivotData(rawData, year, monthFilter = '') {
+export function buildExecutivePivotData(rawData, year, monthFilter = '', customMappings = {}) {
   // Extract or build lookup map of account lines: code -> { code, name, monthly: [12], total }
   const accountMap = new Map()
 
-  // Helper to extract monthly array safely
   const getMonthlyArr = (item) => {
     if (Array.isArray(item.monthly) && item.monthly.length === 12) {
       return item.monthly.map((v) => Number(v) || 0)
@@ -344,39 +414,60 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
     }
     if (monthHasData) activeMonths++
   }
-  // If activeMonths is 0 (no data), default to 1 for division safety
   const activeMonthsCount = activeMonths > 0 ? activeMonths : 1
 
-  // Helper to fetch monthly amounts for a specified account code or list of matching codes
-  const getItemMonthly = (spec) => {
-    let monthly = Array(12).fill(0)
-    if (!spec.code && !spec.matchCodes) return monthly
+  // Track used account codes to identify unmatched/unmapped items
+  const usedAccountCodes = new Set()
 
-    const targetCodes = spec.matchCodes || [spec.code]
+  // Helper to fetch monthly amounts for an item considering custom mappings
+  const getItemMonthly = (spec, categoryKey = null) => {
+    let monthly = Array(12).fill(0)
+    const targetCodes = spec.matchCodes || (spec.code ? [spec.code] : [])
+
+    // 1. Sum up default matched codes (unless user explicitly mapped them elsewhere)
     for (const code of targetCodes) {
+      const userMapping = customMappings[code]
+      if (userMapping && userMapping !== 'auto' && userMapping !== categoryKey) {
+        // User mapped this code to a different category, skip default matching
+        continue
+      }
       if (accountMap.has(code)) {
+        usedAccountCodes.add(code)
         const accData = accountMap.get(code)
         accData.monthly.forEach((val, i) => {
           monthly[i] += val
         })
       }
     }
+
+    // 2. Sum up any other account codes explicitly mapped to this category by user
+    if (categoryKey) {
+      accountMap.forEach((acc, accCode) => {
+        if (customMappings[accCode] === categoryKey && !targetCodes.includes(accCode)) {
+          usedAccountCodes.add(accCode)
+          acc.monthly.forEach((val, i) => {
+            monthly[i] += val
+          })
+        }
+      })
+    }
+
     return monthly
   }
 
   // Calculate Section 1: Revenue
-  const rev4100_01 = getItemMonthly({ code: '4100-01' })
-  const rev4100_05 = getItemMonthly({ code: '4100-05' })
-  const rev4200_08 = getItemMonthly({ code: '4200-08' })
-  const rev4100_03 = getItemMonthly({ code: '4100-03' }) // หัก รับคืนสินค้า
+  const rev4100_01 = getItemMonthly({ code: '4100-01' }, 'rev_4100_01')
+  const rev4100_05 = getItemMonthly({ code: '4100-05' }, 'rev_4100_05')
+  const rev4200_08 = getItemMonthly({ code: '4200-08' }, 'rev_4200_08')
+  const rev4100_03 = getItemMonthly({ code: '4100-03' }, 'rev_4100_03') // หัก รับคืนสินค้า
 
   // รายได้ขั้นต้น = (4100-01 + 4100-05 + 4200-08) - 4100-03
   const grossRevMonthly = Array(12).fill(0).map((_, i) =>
     (rev4100_01[i] + rev4100_05[i] + rev4200_08[i]) - rev4100_03[i]
   )
 
-  const rev4100_04 = getItemMonthly({ code: '4100-04' }) // หัก ส่วนลดจ่าย
-  const rev5130_02 = getItemMonthly({ code: '5130-02' }) // บวก ส่วนลดรับ
+  const rev4100_04 = getItemMonthly({ code: '4100-04' }, 'rev_4100_04') // หัก ส่วนลดจ่าย
+  const rev5130_02 = getItemMonthly({ code: '5130-02' }, 'rev_5130_02') // บวก ส่วนลดรับ
 
   // รวมรายได้ = รายได้ขั้นต้น - 4100-04 + 5130-02
   const totalRevMonthly = Array(12).fill(0).map((_, i) =>
@@ -385,8 +476,25 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
   const totalRevSum = totalRevMonthly.reduce((a, b) => a + b, 0)
 
   // Section 2: COGS (ต้นทุนสินค้า)
-  // COGS could be explicitly imported under 5100-01 or 5001-01 or direct cogs value
-  let cogsMonthly = getItemMonthly({ code: '5100-01', matchCodes: ['5100-01', '5001-01', '5100-00', '5100-99'] })
+  // Smart COGS detection: find all accounts that match COGS rules or are mapped to 'cogs'
+  let cogsMonthly = Array(12).fill(0)
+  const detectedCogsCodes = []
+
+  accountMap.forEach((acc, code) => {
+    const userMapping = customMappings[code]
+    const isExplicitCogs = userMapping === 'cogs'
+    const isAutoCogs = (!userMapping || userMapping === 'auto') && isCogsAccount(acc)
+
+    if (isExplicitCogs || isAutoCogs) {
+      usedAccountCodes.add(code)
+      detectedCogsCodes.push(code)
+      acc.monthly.forEach((val, i) => {
+        cogsMonthly[i] += val
+      })
+    }
+  })
+
+  // Fallback to rawData.cogsMonthly if accountMap has 0 COGS but rawData provided it
   const hasCogsInAcc = cogsMonthly.some((v) => v !== 0)
   if (!hasCogsInAcc && rawData?.cogsMonthly) {
     cogsMonthly = getMonthlyArr({ monthly: rawData.cogsMonthly })
@@ -401,18 +509,11 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
   let grandTotalExpMonthly = Array(12).fill(0)
   let grandTotalExpSum = 0
 
-  // Track used account codes to find unmatched codes
-  const usedAccountCodes = new Set([
-    '4100-01', '4100-05', '4200-08', '4100-03', '4100-04', '5130-02',
-    '5100-01', '5001-01', '5100-00', '5100-99',
-  ])
-
   // Build the complete list of rendered rows
   const rows = []
 
   // Function to add a row to table
   const addRow = (rowObj) => {
-    // Apply month filter if selected
     let monthly = rowObj.monthly ? [...rowObj.monthly] : Array(12).fill(0)
     let total = rowObj.total !== undefined ? rowObj.total : monthly.reduce((a, b) => a + b, 0)
 
@@ -449,9 +550,6 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
     } else if (block.type === 'section-header') {
       rows.push({ type: 'section-header', title: block.title, id: block.id })
     } else if (block.type === 'item') {
-      usedAccountCodes.add(block.code)
-      if (block.matchCodes) block.matchCodes.forEach((c) => usedAccountCodes.add(c))
-
       let mArr = Array(12).fill(0)
       if (block.code === '4100-01') mArr = rev4100_01
       else if (block.code === '4100-05') mArr = rev4100_05
@@ -459,7 +557,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
       else if (block.code === '4100-03') mArr = rev4100_03
       else if (block.code === '4100-04') mArr = rev4100_04
       else if (block.code === '5130-02') mArr = rev5130_02
-      else mArr = getItemMonthly(block)
+      else mArr = getItemMonthly(block, block.categoryKey)
 
       addRow({
         code: block.code,
@@ -529,14 +627,10 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
     } else if (block.type === 'cat-group') {
       // Standard category sub-group (3.1, 3.3-3.15)
       let subGroupMonthly = Array(12).fill(0)
-
-      // Calculate total sub-group expense for pct header
       const catItemRows = []
-      block.items.forEach((itemSpec) => {
-        usedAccountCodes.add(itemSpec.code)
-        if (itemSpec.matchCodes) itemSpec.matchCodes.forEach((c) => usedAccountCodes.add(c))
 
-        const mArr = getItemMonthly(itemSpec)
+      block.items.forEach((itemSpec) => {
+        const mArr = getItemMonthly(itemSpec, block.categoryKey)
         mArr.forEach((v, i) => { subGroupMonthly[i] += v })
 
         catItemRows.push({
@@ -579,8 +673,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
       let catTotalMonthly = Array(12).fill(0)
       block.subGroups.forEach((sg) => {
         sg.items.forEach((itemSpec) => {
-          usedAccountCodes.add(itemSpec.code)
-          const mArr = getItemMonthly(itemSpec)
+          const mArr = getItemMonthly(itemSpec, sg.categoryKey)
           mArr.forEach((v, i) => { catTotalMonthly[i] += v })
         })
       })
@@ -600,8 +693,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
         const sgRows = []
 
         sg.items.forEach((itemSpec) => {
-          usedAccountCodes.add(itemSpec.code)
-          const mArr = getItemMonthly(itemSpec)
+          const mArr = getItemMonthly(itemSpec, sg.categoryKey)
           mArr.forEach((v, i) => { sgMonthly[i] += v })
           sgRows.push({
             code: itemSpec.code,
@@ -633,7 +725,6 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
   }
 
   // Section 4 summary formulas
-  // รวมค่าใช้จ่ายทั้งหมดของกิจการ
   const totalExpPct = totalRevSum > 0 ? Number(((grandTotalExpSum / totalRevSum) * 100).toFixed(2)) : 0
   rows.push({
     code: '',
@@ -673,11 +764,29 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
     showAvg: true,
   })
 
-  // Check for any unmatched / ungrouped account codes from DB
+  // Audit summary & unmapped account detection
+  const allDetectedAccounts = []
   const unmatchedAccounts = []
+
   accountMap.forEach((acc, code) => {
-    if (!usedAccountCodes.has(code) && acc.total !== 0) {
-      unmatchedAccounts.push(acc)
+    if (acc.total !== 0) {
+      const isMapped = usedAccountCodes.has(code)
+      const userMapping = customMappings[code] || 'auto'
+
+      const accInfo = {
+        code,
+        name: acc.name,
+        total: acc.total,
+        monthly: acc.monthly,
+        isMapped,
+        isCogs: detectedCogsCodes.includes(code),
+        userMapping,
+      }
+
+      allDetectedAccounts.push(accInfo)
+      if (!isMapped) {
+        unmatchedAccounts.push(accInfo)
+      }
     }
   })
 
@@ -687,10 +796,13 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '') {
     totalRevSum,
     totalRevMonthly,
     cogsTotal,
+    cogsMonthly,
     grossProfitTotal,
     grandTotalExpSum,
     netProfitTotal: grossProfitTotal - grandTotalExpSum,
     rows,
+    allDetectedAccounts,
     unmatchedAccounts,
+    cogsCodes: detectedCogsCodes,
   }
 }
