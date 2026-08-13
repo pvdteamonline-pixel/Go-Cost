@@ -22,6 +22,10 @@ import WorkshopApprovalPage from './pages/WorkshopApprovalPage'
 import TrialBalancePage from './pages/TrialBalancePage'
 import ExternalExpensePage from './pages/ExternalExpensePage'
 import PLReportPage from './pages/PLReportPage'
+import ReportsHubPage from './pages/ReportsHubPage'
+import AccountsHubPage from './pages/AccountsHubPage'
+import ReconTrialHubPage from './pages/ReconTrialHubPage'
+import BudgetsOtherHubPage from './pages/BudgetsOtherHubPage'
 import NotificationsBell from './components/NotificationsBell'
 import { NAV_GROUPS } from './lib/constants'
 import { hasPagePermission } from './lib/permissions'
@@ -35,21 +39,25 @@ const IMPLEMENTED_PAGES = {
   'pending-edits': PendingEditsPage,
   users: UsersManagementPage,
   stores: StoresManagementPage,
-  accounts: AccountsManagementPage,
-  'account-groups': AccountGroupsPage,
-  'account-import': AccountFileImportPage,
-  reconciliation: ReconciliationPage,
-  budgets: BudgetManagementPage,
+  accounts: (props) => <AccountsHubPage initialTab="accounts" {...props} />,
+  'account-groups': (props) => <AccountsHubPage initialTab="account-groups" {...props} />,
+  'account-import': (props) => <AccountsHubPage initialTab="account-import" {...props} />,
+  'accounts-hub': (props) => <AccountsHubPage initialTab="accounts" {...props} />,
+  reconciliation: (props) => <ReconTrialHubPage initialTab="reconciliation" {...props} />,
+  'trial-balance': (props) => <ReconTrialHubPage initialTab="trial-balance" {...props} />,
+  'recon-hub': (props) => <ReconTrialHubPage initialTab="reconciliation" {...props} />,
+  budgets: (props) => <BudgetsOtherHubPage initialTab="budgets" {...props} />,
+  'external-expenses': (props) => <BudgetsOtherHubPage initialTab="external-expenses" {...props} />,
+  'budgets-hub': (props) => <BudgetsOtherHubPage initialTab="budgets" {...props} />,
   'exec-dashboard': ExecutiveDashboardPage,
-  'exec-report': ExecutiveReportPage,
-  'tax-report': TaxReportPage,
+  'exec-report': (props) => <ReportsHubPage initialTab="exec-report" {...props} />,
+  'pl-report': (props) => <ReportsHubPage initialTab="pl-report" {...props} />,
+  'tax-report': (props) => <ReportsHubPage initialTab="tax-report" {...props} />,
+  'reports-hub': (props) => <ReportsHubPage initialTab="exec-report" {...props} />,
   'audit-log': AuditLogPage,
   'workshop-plan-create': WorkshopCreatePage,
   'workshop-plan-view': WorkshopHistoryPage,
   'workshop-approve': WorkshopApprovalPage,
-  'trial-balance': TrialBalancePage,
-  'external-expenses': ExternalExpensePage,
-  'pl-report': PLReportPage,
 }
 
 function ComingSoon({ label }) {

@@ -43,6 +43,7 @@ const MOCK_TB_SUMMARY = {
 export default function TaxReportPage() {
   const { currentUser } = useAuth()
   const [year, setYear] = useState(new Date().getFullYear())
+  const [month, setMonth] = useState('') // '' = ทั้งปี, '1'-'12' = เฉพาะเดือน
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -53,13 +54,15 @@ export default function TaxReportPage() {
     setLoading(true)
     setError('')
     const { data: res, error: err } = await supabase.rpc('get_tax_filing_report', {
-      p_actor_id: currentUser?.id ?? null, p_year: year,
+      p_actor_id: currentUser?.id ?? null,
+      p_year: year,
+      p_month: month ? Number(month) : null,
     })
     setLoading(false)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
     if (!res.success) return setError(res.message)
     setData(res)
-  }, [currentUser, year])
+  }, [currentUser, year, month])
 
   useEffect(() => { if (canUse) load() }, [canUse, load])
 
@@ -79,8 +82,14 @@ export default function TaxReportPage() {
           <h1 className="font-display italic text-3xl text-ink-900">รายงานสำหรับกรมสรรพากร</h1>
           <p className="text-ink-600 text-sm mt-1">สรุปรายได้-รายจ่ายบริษัท แยกตามหมวดหมู่บัญชี สำหรับใช้อ้างอิงยื่นภาษี</p>
         </div>
-        <div className="flex gap-2">
-          <select className="glass-input text-sm w-32" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+        <div className="flex gap-2 items-center">
+          <select className="glass-input text-sm w-36" value={month} onChange={(e) => setMonth(e.target.value)}>
+            <option value="">ทุกเดือน (ทั้งปี)</option>
+            {['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'].map((m, idx) => (
+              <option key={idx + 1} value={idx + 1}>{m}</option>
+            ))}
+          </select>
+          <select className="glass-input text-sm w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}

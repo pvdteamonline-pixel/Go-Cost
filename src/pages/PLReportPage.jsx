@@ -106,6 +106,7 @@ function GroupSection({ group, revenueMonthly, revenueTotal }) {
 export default function PLReportPage() {
   const { currentUser } = useAuth()
   const [year, setYear] = useState(new Date().getFullYear())
+  const [month, setMonth] = useState('') // '' = ทั้งปี, '1'-'12' = เฉพาะเดือน
   const [raw, setRaw] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -116,7 +117,8 @@ export default function PLReportPage() {
     setLoading(true)
     setError('')
     const { data: res, error: err } = await supabase.rpc('get_executive_monthly_report', {
-      p_actor_id: currentUser?.id ?? null, p_year: year,
+      p_actor_id: currentUser?.id ?? null,
+      p_year: year,
     })
     setLoading(false)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
@@ -126,15 +128,54 @@ export default function PLReportPage() {
 
   useEffect(() => { if (canUse) load() }, [canUse, load])
 
+  // Filter groups / monthly data by month if specified
+  const filteredRaw = useMemo(() => {
+    if (!raw) return null
+    if (!month) return raw
+
+    const selectedM = Number(month) - 1 // 0-indexed
+    const filterMonthlyArray = (arr) => {
+      const newArr = Array(12).fill(0)
+      if (Array.isArray(arr) && arr[selectedM] !== undefined) {
+        newArr[selectedM] = arr[selectedM]
+      }
+      return newArr
+    }
+
+    const newGroups = (raw.groups ?? []).map((g) => {
+      const gMonthly = filterMonthlyArray(g.monthly)
+      const gAccounts = (g.accounts ?? []).map((a) => {
+        const aMonthly = filterMonthlyArray(a.monthly)
+        return { ...a, monthly: aMonthly, total: aMonthly[selectedM] || 0 }
+      })
+      return {
+        ...g,
+        accounts: gAccounts,
+        monthly: gMonthly,
+        total: gMonthly[selectedM] || 0,
+      }
+    })
+
+    const newRevMonthly = filterMonthlyArray(raw.revenueMonthly)
+
+    return {
+      ...raw,
+      revenueMonthly: newRevMonthly,
+      revenueTotal: newRevMonthly[selectedM] || 0,
+      groups: newGroups,
+    }
+  }, [raw, month])
+
   // ─── คำนวณ summaries ─────────────────────────────────────────
   const computed = useMemo(() => {
-    if (!raw) return null
-    const rev = (raw.revenueMonthly ?? []).map(Number)
-    const revTotal = Number(raw.revenueTotal ?? 0)
+    if (!filteredRaw) return null
+    const rev = (filteredRaw.revenueMonthly ?? []).map(Number)
+    const revTotal = Number(filteredRaw.revenueTotal ?? 0)
 
-    const cogsGroups = (raw.groups ?? []).filter(isCogsGroup)
-    const revenueGroups = (raw.groups ?? []).filter(isRevenueGroup)
-    const otherGroups = (raw.groups ?? []).filter(g => !isCogsGroup(g) && !isRevenueGroup(g))
+    const allGroups = (filteredRaw.groups ?? [])
+    const cogsGroups = allGroups.filter(isCogsGroup)
+    const revenueGroups = allGroups.filter(isRevenueGroup)
+    const otherGroups = allGroups.filter(g => !isCogsGroup(g) && !isRevenueGroup(g))
 
     // รวม COGS รายเดือน
     const cogsMonthly = Array(12).fill(0)
@@ -149,7 +190,7 @@ export default function PLReportPage() {
 
     // รวมค่าใช้จ่ายทั้งหมด (ทุกกลุ่มที่ไม่ใช่ revenue)
     const totalExpMonthly = Array(12).fill(0)
-    const nonRevGroups = (raw.groups ?? []).filter(g => !isRevenueGroup(g))
+    const nonRevGroups = allGroups.filter(g => !isRevenueGroup(g))
     nonRevGroups.forEach(g => (g.monthly ?? []).forEach((v, i) => { totalExpMonthly[i] += Number(v ?? 0) }))
     const totalExpTotal = totalExpMonthly.reduce((s, v) => s + v, 0)
     const totalExpPctMonthly = rev.map((r, i) => r > 0 ? (totalExpMonthly[i] / r) * 100 : null)
@@ -163,13 +204,13 @@ export default function PLReportPage() {
 
     return {
       rev, revTotal,
-      revenueGroups, cogsGroups, otherGroups,
+      allGroups, revenueGroups, cogsGroups, otherGroups,
       cogsMonthly, cogsTotal,
       gpMonthly, gpTotal, gpPctMonthly, gpPctTotal,
       totalExpMonthly, totalExpTotal, totalExpPctMonthly, totalExpPctTotal,
       netMonthly, netTotal, netPctMonthly, netPctTotal,
     }
-  }, [raw])
+  }, [filteredRaw])
 
   if (!canUse) {
     return (
@@ -187,17 +228,27 @@ export default function PLReportPage() {
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">ประมาณการกำไรขาดทุน</h1>
           <p className="text-ink-500 text-sm mt-1">
-            P&amp;L Report รายเดือน ปี {year} — ข้อมูลจากไฟล์ที่นำเข้าระบบ
+            P&amp;L Report รายเดือน ปี {year} {month ? `(เดือน ${MONTH_SHORT[Number(month) - 1]})` : ''} — ข้อมูลจากไฟล์ที่นำเข้าระบบ
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {raw && computed && (
+          {filteredRaw && computed && (
             <ExportModal
               fileNameBase={`P&L_ปี${year}`}
-              pdfPreview={<PLReportPdfPreview raw={raw} computed={computed} year={year} />}
-              excelSheets={buildPlExcelSheet(raw, computed, year)}
+              pdfPreview={<PLReportPdfPreview raw={filteredRaw} computed={computed} year={year} />}
+              excelSheets={buildPlExcelSheet(filteredRaw, computed, year)}
             />
           )}
+          <select
+            className="glass-input text-sm w-36"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+          >
+            <option value="">ทุกเดือน (ทั้งปี)</option>
+            {MONTH_SHORT.map((m, idx) => (
+              <option key={idx + 1} value={idx + 1}>{m}</option>
+            ))}
+          </select>
           <select
             className="glass-input text-sm w-28"
             value={year}
@@ -245,7 +296,7 @@ export default function PLReportPage() {
             </thead>
 
             <tbody>
-              {/* ══════════ รายได้ ══════════ */}
+              {/* ══════════ รายได้รวม (Total Revenue Banner) ══════════ */}
               <tr className="bg-[#e8f5e9] border-b border-[#a5d6a7]">
                 <td colSpan={2} className="px-2 py-1 font-bold text-[#1b5e20] text-[11px]">รายได้รวม</td>
                 {computed.rev.map((v, i) => (
@@ -255,75 +306,10 @@ export default function PLReportPage() {
                 <td />
               </tr>
 
-              {/* รายได้ย่อย — Revenue groups */}
-              {computed.revenueGroups.map(g =>
-                (g.accounts ?? []).map(a => (
-                  <tr key={a.code} className="border-b border-black/[0.04] hover:bg-[#f1f8e9]">
-                    <td className="px-2 py-[3px] font-mono text-[10px] text-[#0077b6]">{a.code}</td>
-                    <td className="px-2 py-[3px] text-ink-700 text-[11px]">{a.name}</td>
-                    {(a.monthly ?? []).map((v, i) => (
-                      <td key={i} className="text-right px-2 py-[3px] text-[11px] text-ink-700 tabular-nums">{Number(v) !== 0 ? fmtV(Number(v)) : ''}</td>
-                    ))}
-                    <td className="text-right px-2 py-[3px] text-[11px] font-medium text-ink-800 tabular-nums">{fmtV(Number(a.total))}</td>
-                    <td />
-                  </tr>
-                ))
-              )}
-
-              {/* รายได้ชันกัน row */}
-              {computed.revenueGroups.length > 0 && (() => {
-                const rg = computed.revenueGroups
-                const subMonthly = Array(12).fill(0)
-                rg.forEach(g => (g.monthly ?? []).forEach((v, i) => { subMonthly[i] += Number(v ?? 0) }))
-                const subTotal = subMonthly.reduce((s, v) => s + v, 0)
-                return (
-                  <tr className="bg-[#c8e6c9]/60 border-b-2 border-[#388e3c]">
-                    <td colSpan={2} className="px-2 py-1 font-bold text-[#1b5e20] text-[11px] italic pl-4">รายได้ชันกัน</td>
-                    {subMonthly.map((v, i) => (
-                      <td key={i} className="text-right px-2 py-1 font-semibold text-[#1b5e20] tabular-nums">{fmtV(v)}</td>
-                    ))}
-                    <td className="text-right px-2 py-1 font-bold text-[#1b5e20] tabular-nums">{fmtV(subTotal)}</td>
-                    <td />
-                  </tr>
-                )
-              })()}
-
-              {/* ══════════ ต้นทุนสินค้า (COGS) ══════════ */}
-              {computed.cogsGroups.map((g) => (
+              {/* ══════════ กลุ่มรหัสบัญชีหมวด 1 - 6 เรียงตามลำดับ ══════════ */}
+              {computed.allGroups.map((g) => (
                 <GroupSection
-                  key={g.groupId}
-                  group={g}
-                  revenueMonthly={computed.rev}
-                  revenueTotal={computed.revTotal}
-                />
-              ))}
-
-              {/* กำไรขั้นต้น */}
-              {computed.cogsGroups.length > 0 && (
-                <>
-                  <tr className="bg-[#fff8e1] border-t-2 border-[#f9a825]">
-                    <td colSpan={2} className="px-2 py-1 font-bold text-[#e65100] text-[11px] italic">% กำไรขั้นต้น</td>
-                    {computed.gpPctMonthly.map((p, i) => (
-                      <td key={i} className="text-right px-2 py-1 font-bold text-[#e65100] tabular-nums">{fmtPct(p)}</td>
-                    ))}
-                    <td className="text-right px-2 py-1 font-bold text-[#e65100] tabular-nums">{fmtPct(computed.gpPctTotal)}</td>
-                    <td />
-                  </tr>
-                  <tr className="bg-[#fff8e1] border-b-2 border-[#f9a825]">
-                    <td colSpan={2} className="px-2 py-1 font-bold text-[#e65100] text-[11px] pl-4">ต้นทุนสินค้า</td>
-                    {computed.gpMonthly.map((v, i) => (
-                      <td key={i} className="text-right px-2 py-1 font-bold text-[#e65100] tabular-nums">{fmtV(v)}</td>
-                    ))}
-                    <td className="text-right px-2 py-1 font-bold text-[#e65100] tabular-nums">{fmtV(computed.gpTotal)}</td>
-                    <td />
-                  </tr>
-                </>
-              )}
-
-              {/* ══════════ ค่าใช้จ่ายอื่น ══════════ */}
-              {computed.otherGroups.map((g) => (
-                <GroupSection
-                  key={g.groupId}
+                  key={g.groupId || g.code}
                   group={g}
                   revenueMonthly={computed.rev}
                   revenueTotal={computed.revTotal}

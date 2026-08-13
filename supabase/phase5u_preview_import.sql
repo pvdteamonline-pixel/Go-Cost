@@ -51,10 +51,10 @@ begin
 
   -- สร้าง temp table จาก p_rows เพื่อ query ได้ง่าย
   create temp table _preview_lines (
-    account_id  uuid,
+    account_id  bigint,
     code        text,
     category    text,
-    group_id    uuid,
+    group_id    bigint,
     month       int,
     amount      numeric
   ) on commit drop;
@@ -64,7 +64,7 @@ begin
     ac.id,
     ac.code,
     ac.category,
-    ac.group_id,
+    coalesce(ac.group_id, (select s.group_id from account_group_splits s where s.account_id = ac.id limit 1)),
     (row_obj->>'month')::int,
     (row_obj->>'amount')::numeric
   from jsonb_array_elements(p_rows) as row_obj
@@ -90,7 +90,13 @@ begin
     v_group_monthly  := array_fill(0::numeric, array[12]);
     v_group_total    := 0;
 
-    for a in select id, code, name from accounts where group_id = g.id order by code loop
+    for a in
+      select distinct ac.id, ac.code, ac.name
+      from accounts ac
+      left join account_group_splits s on s.account_id = ac.id
+      where ac.group_id = g.id or s.group_id = g.id
+      order by ac.code
+    loop
       v_acct_monthly := array_fill(0::numeric, array[12]);
       v_acct_total   := 0;
       for m in 1..12 loop
@@ -139,6 +145,7 @@ begin
     from _preview_lines pl
     join accounts acc on acc.id = pl.account_id
     where pl.group_id is null
+      and not exists (select 1 from account_group_splits s where s.account_id = pl.account_id)
     group by pl.account_id, pl.code, acc.name
     order by pl.code
   loop

@@ -58,7 +58,7 @@ function buildDashboardExcel(stats, workshopSummary, categoryData, monthData) {
 
 export default function DashboardPage() {
   const [viewMode, setViewMode] = useState('all')
-  const [filters, setFilters] = useState({ year: '', month: '', category: '', detail: '', store: '' })
+  const [filters, setFilters] = useState({ year: String(new Date().getFullYear()), month: '', category: '', detail: '', store: '' })
   const [options, setOptions] = useState({ years: [], categories: [], details: [], storeNames: [] })
   const [stats, setStats] = useState(null)
   const [workshopSummary, setWorkshopSummary] = useState(null)

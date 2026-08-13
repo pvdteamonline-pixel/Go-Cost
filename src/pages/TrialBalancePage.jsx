@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import { THAI_MONTHS } from '../lib/constants'
+import { downloadTrialBalanceTemplate } from '../lib/templateGenerator'
 
 function formatBaht(n) {
   return (n ?? 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -62,7 +63,7 @@ function DeleteModal({ period, onCancel, onConfirm, busy }) {
   )
 }
 
-export default function TrialBalancePage() {
+export default function TrialBalancePage({ onNavigate }) {
   const { currentUser } = useAuth()
   const canUse = hasPagePermission(currentUser, 'trial-balance')
 
@@ -102,10 +103,12 @@ export default function TrialBalancePage() {
     setReport(data)
   }, [currentUser, selectedPeriod])
 
-  useEffect(() => { loadReport() }, [loadReport])
+  useEffect(() => { if (canUse && selectedPeriod) loadReport() }, [canUse, selectedPeriod, loadReport])
 
   async function handleDeleteConfirm() {
+    if (!deletingPeriod) return
     setDeleteBusy(true)
+    setError('')
     const { data, error: err } = await supabase.rpc('delete_trial_balance_period', {
       p_actor_id: currentUser?.id ?? null, p_year: deletingPeriod.year, p_month: deletingPeriod.month,
     })
@@ -114,7 +117,9 @@ export default function TrialBalancePage() {
     if (!data.success) return setError(data.message)
     setNotice(data.message)
     setDeletingPeriod(null)
-    if (selectedPeriod?.year === deletingPeriod.year && selectedPeriod?.month === deletingPeriod.month) setSelectedPeriod(null)
+    if (selectedPeriod?.year === deletingPeriod.year && selectedPeriod?.month === deletingPeriod.month) {
+      setSelectedPeriod(null)
+    }
     loadPeriods()
   }
 
@@ -145,9 +150,68 @@ export default function TrialBalancePage() {
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
 
       {uploadHintOpen && (
-        <div className="bg-ocean-pale border border-ocean/20 rounded-lg p-4 text-sm text-ink-700">
-          💡 นำเข้างบทดลองใหม่ได้ที่หน้า <b>"แนบไฟล์บัญชี"</b> (เลือกประเภทไฟล์เป็น "งบทดลอง (Trial Balance)") —
-          นำเข้าเสร็จแล้วกลับมาที่หน้านี้เพื่อดู/ลบงบทดลองที่นำเข้าไว้
+        <div className="glass p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-ink-900 font-medium text-sm">💡 โครงสร้างไฟล์สำหรับนำเข้างบทดลอง</p>
+              <p className="text-ink-500 text-xs mt-0.5">
+                นำเข้างบทดลองใหม่ได้ที่หน้า <b>"ศูนย์จัดการทางบัญชี &gt; แนบไฟล์บัญชี"</b> (เลือกประเภท "งบทดลอง")
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={downloadTrialBalanceTemplate}
+                className="btn-ghost text-xs bg-amber-50/80 hover:bg-amber-100/80 border border-gold/40 text-gold-dark font-medium flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer"
+              >
+                <span>📥</span>
+                <span>ดาวน์โหลดไฟล์ Template งบทดลอง (.xlsx)</span>
+              </button>
+              {onNavigate && (
+                <button
+                  onClick={() => onNavigate('account-import')}
+                  className="btn-primary text-xs flex items-center gap-1 px-3 py-2 cursor-pointer"
+                >
+                  <span>ไปหน้าแนบไฟล์บัญชี</span>
+                  <span>→</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-black/10 bg-white">
+            <table className="w-full text-xs text-left whitespace-nowrap">
+              <thead>
+                <tr className="bg-gold-pale/40 text-ink-500 border-b border-black/5">
+                  <th colSpan="2" className="px-3 py-1 text-center border-r border-black/5">ข้อมูลบัญชี</th>
+                  <th colSpan="2" className="px-3 py-1 text-center border-r border-black/5">ยอดยกมา</th>
+                  <th colSpan="2" className="px-3 py-1 text-center border-r border-black/5 bg-gold-pale/70 text-gold-dark font-semibold">ยอดเคลื่อนไหว (ระบบใช้อ่านคอลัมน์นี้)</th>
+                  <th colSpan="2" className="px-3 py-1 text-center">ยอดคงเหลือ</th>
+                </tr>
+                <tr className="bg-gold-pale/60 text-gold-dark font-medium border-b border-black/10">
+                  <th className="px-3 py-2 border-r border-black/5">เลขที่บัญชี</th>
+                  <th className="px-3 py-2 border-r border-black/5">ชื่อบัญชี</th>
+                  <th className="px-3 py-2 border-r border-black/5">เดบิต</th>
+                  <th className="px-3 py-2 border-r border-black/5">เครดิต</th>
+                  <th className="px-3 py-2 border-r border-black/5 bg-gold-pale/90 font-bold">เดบิต</th>
+                  <th className="px-3 py-2 border-r border-black/5 bg-gold-pale/90 font-bold">เครดิต</th>
+                  <th className="px-3 py-2 border-r border-black/5">เดบิต</th>
+                  <th className="px-3 py-2">เครดิต</th>
+                </tr>
+              </thead>
+              <tbody className="text-ink-700 divide-y divide-black/5">
+                <tr>
+                  <td className="px-3 py-2 font-mono text-ink-900 border-r border-black/5">1110-01</td>
+                  <td className="px-3 py-2 border-r border-black/5">เงินสดในมือ</td>
+                  <td className="px-3 py-2 border-r border-black/5">50,000</td>
+                  <td className="px-3 py-2 border-r border-black/5">0</td>
+                  <td className="px-3 py-2 border-r border-black/5 bg-gold-pale/20 font-medium">15,000</td>
+                  <td className="px-3 py-2 border-r border-black/5 bg-gold-pale/20 font-medium">8,000</td>
+                  <td className="px-3 py-2 border-r border-black/5">57,000</td>
+                  <td className="px-3 py-2">0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

@@ -4,6 +4,29 @@ import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import { THAI_MONTHS } from '../lib/constants'
 
+function fixMojibakeText(str) {
+  if (!str || typeof str !== 'string') return str
+  if (!str.includes('เธ') && !str.includes('เน') && !str.includes('เธฃ') && !str.includes('เธณ')) return str
+
+  try {
+    const bytes = []
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i)
+      if (code >= 0x0E00 && code <= 0x0E7F) {
+        bytes.push(code - 0x0E00 + 0xA0)
+      } else if (code < 256) {
+        bytes.push(code)
+      }
+    }
+    const decoder = new TextDecoder('utf-8')
+    const decoded = decoder.decode(new Uint8Array(bytes))
+    if (decoded && !decoded.includes('')) return decoded
+  } catch (e) {
+    // fallback
+  }
+  return str
+}
+
 export default function AuditLogPage() {
   const { currentUser } = useAuth()
   const [logs, setLogs] = useState([])
@@ -36,6 +59,16 @@ export default function AuditLogPage() {
 
   useEffect(() => { if (canView) load() }, [canView, load])
 
+  async function handleFixMojibake() {
+    setBusy(true)
+    setError('')
+    const { data, error: err } = await supabase.rpc('fix_corrupted_audit_logs')
+    setBusy(false)
+    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
+    if (data?.message) setNotice(data.message)
+    load()
+  }
+
   async function handleDelete(logId) {
     if (!confirm('ยืนยันลบบันทึกกิจกรรมนี้? การลบไม่สามารถย้อนกลับได้')) return
     setBusy(true)
@@ -49,7 +82,7 @@ export default function AuditLogPage() {
 
   function startEdit(l) {
     setEditingId(l.log_id)
-    setEditText(l.details ?? '')
+    setEditText(fixMojibakeText(l.details ?? ''))
     setError('')
   }
 
@@ -79,8 +112,9 @@ export default function AuditLogPage() {
   const filtered = logs.filter((l) => {
     if (!search.trim()) return true
     const q = search.trim().toLowerCase()
+    const fixedDetails = fixMojibakeText(l.details ?? '').toLowerCase()
     return l.user_id?.toLowerCase().includes(q) || l.user_name?.toLowerCase().includes(q)
-      || l.action?.toLowerCase().includes(q) || l.details?.toLowerCase().includes(q)
+      || l.action?.toLowerCase().includes(q) || fixedDetails.includes(q)
   })
 
   const currentYear = new Date().getFullYear()
@@ -93,7 +127,17 @@ export default function AuditLogPage() {
           <h1 className="font-display italic text-3xl text-ink-900">บันทึกกิจกรรม</h1>
           <p className="text-ink-600 text-sm mt-1">ประวัติการทำรายการทั้งหมดในระบบ{isAdmin ? ' — Admin แก้ไข/ลบบันทึกได้' : ''}</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {isAdmin && (
+            <button
+              onClick={handleFixMojibake}
+              disabled={busy}
+              className="btn-ghost text-xs px-2.5 py-1.5 flex items-center gap-1 border border-black/10 hover:bg-black/5 cursor-pointer text-ocean"
+              title="ซ่อมแซมภาษาไทยที่เพี้ยนในระบบ"
+            >
+              🧹 ซ่อมภาษาเพี้ยน
+            </button>
+          )}
           <select className="glass-input text-sm" value={year} onChange={(e) => setYear(e.target.value)}>
             <option value="">ทุกปี</option>
             {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -141,7 +185,7 @@ export default function AuditLogPage() {
                         <button onClick={() => handleSaveEdit(l.log_id)} disabled={busy} className="text-ocean text-xs hover:underline whitespace-nowrap">บันทึก</button>
                         <button onClick={() => setEditingId(null)} className="text-ink-400 text-xs hover:underline whitespace-nowrap">ยกเลิก</button>
                       </div>
-                    ) : l.details}
+                    ) : fixMojibakeText(l.details)}
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-3 text-right space-x-3 whitespace-nowrap">

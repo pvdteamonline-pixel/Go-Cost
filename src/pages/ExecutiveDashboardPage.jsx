@@ -33,49 +33,79 @@ function AlertBadge({ pct }) {
   return <span className="doc-badge bg-sage-pale text-sage border-sage/30">🟢 ปกติ ({pct.toFixed(1)}%)</span>
 }
 
-// กล่องแสดงกลุ่มรหัสบัญชีพร้อม % รวม และ Drill-down
-function GroupBlock({ group, grandTotal, onInspect }) {
+// กล่องแสดงกลุ่มรหัสบัญชีพร้อม % Attribution Rate, % ของรวม, และ Drill-down
+function GroupBlock({ group, grandTotal, netRevenue, onInspect, isCollapsed, onToggleCollapse }) {
   const pctOfTotal = grandTotal > 0 ? ((group.total / grandTotal) * 100).toFixed(1) : '0.0'
+  const attributionRate = netRevenue > 0 ? ((group.total / netRevenue) * 100).toFixed(2) : null
+  const avgMonthly = (group.total / 12).toFixed(0)
 
   return (
-    <div className="glass p-4 transition-all hover:border-gold/30">
-      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+    <div className="glass p-4 transition-all hover:border-gold/30 rounded-2xl shadow-sm">
+      <div
+        onClick={onToggleCollapse}
+        className="flex items-center justify-between flex-wrap gap-2 cursor-pointer select-none"
+      >
         <div className="flex items-center gap-2">
-          <span className="doc-badge text-xs">{group.code}</span>
+          <span className="text-ink-400 text-xs font-mono">{isCollapsed ? '▶' : '▼'}</span>
+          <span className="doc-badge text-xs font-semibold">{group.code}</span>
           <h3 className="text-ink-900 font-medium text-sm">{group.name}</h3>
+          {attributionRate && (
+            <span className="text-[11px] bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full font-medium ml-1">
+              {attributionRate}% ของรายได้สุทธิ
+            </span>
+          )}
+          <span className="text-[11px] bg-ink-100 text-ink-700 px-2 py-0.5 rounded-full font-medium">
+            {group.accounts.length} รหัส ({pctOfTotal}% ของรายจ่าย)
+          </span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs bg-ink-100 text-ink-700 px-2 py-0.5 rounded-full font-medium">
-            คิดเป็น {pctOfTotal}% ของยอดรวม
-          </span>
-          <span className="text-gold-dark font-display italic text-base font-semibold">{formatBaht(group.total)}</span>
+          <div className="text-right">
+            <span className="text-gold-dark font-display italic text-base font-semibold block">{formatBaht(group.total)}</span>
+            <span className="text-[10px] text-ink-400 font-normal">เฉลี่ยเดือนละ ~{formatBaht(Number(avgMonthly))}</span>
+          </div>
           {onInspect && (
             <button
-              onClick={() => onInspect(group)}
-              className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 border border-black/10 hover:border-gold/50"
+              onClick={(e) => {
+                e.stopPropagation()
+                onInspect(group)
+              }}
+              className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 border border-black/10 hover:border-gold/50 cursor-pointer"
               title="จิ้มดูรายละเอียดย่อย"
             >
-              🔍 จิ้มดูรายการ
+              🔍 รายละเอียด
             </button>
           )}
+          <span className="text-xs text-ocean font-medium hover:underline">
+            {isCollapsed ? 'ขยายดูรายการ' : 'ย่อเก็บ'}
+          </span>
         </div>
       </div>
 
-      {group.accounts.length === 0 ? (
-        <p className="text-ink-400 text-xs py-1">ยังไม่มีรหัสบัญชีในกลุ่มนี้</p>
-      ) : (
-        <div className="divide-y divide-black/5">
-          {group.accounts.map((a) => {
-            const accPct = grandTotal > 0 ? ((a.total / grandTotal) * 100).toFixed(1) : '0.0'
-            return (
-              <div key={a.code} className="flex items-center justify-between py-1.5 text-sm hover:bg-black/[0.02] px-1 rounded">
-                <span className="text-ocean font-mono text-xs w-28 shrink-0">{a.code}</span>
-                <span className="text-ink-600 flex-1 px-2">{a.name}</span>
-                <span className="text-xs text-ink-400 mr-4 tabular-nums">{accPct}% ของรวม</span>
-                <span className="text-ink-900 tabular-nums font-medium">{formatBaht(a.total)}</span>
-              </div>
-            )
-          })}
+      {!isCollapsed && (
+        <div className="mt-3 pt-3 border-t border-black/10 space-y-1">
+          {group.accounts.length === 0 ? (
+            <p className="text-ink-400 text-xs py-1">ยังไม่มีรหัสบัญชีในกลุ่มนี้</p>
+          ) : (
+            <div className="divide-y divide-black/5">
+              {group.accounts.map((a) => {
+                const accPct = grandTotal > 0 ? ((a.total / grandTotal) * 100).toFixed(1) : '0.0'
+                const grpPct = group.total > 0 ? ((a.total / group.total) * 100).toFixed(1) : '0.0'
+                const accAttribution = netRevenue > 0 ? ((a.total / netRevenue) * 100).toFixed(2) : null
+                return (
+                  <div key={a.code} className="flex items-center justify-between py-2 text-sm hover:bg-black/[0.02] px-2 rounded">
+                    <span className="text-ocean font-mono text-xs font-bold w-28 shrink-0">{a.code}</span>
+                    <span className="text-ink-700 font-medium flex-1 px-2 text-xs">{a.name}</span>
+                    <div className="flex items-center gap-4 text-xs">
+                      {accAttribution && <span className="text-amber-800 font-medium text-[11px] tabular-nums">{accAttribution}% ของรายได้</span>}
+                      <span className="text-ink-400 tabular-nums">{grpPct}% ของกลุ่ม</span>
+                      <span className="text-ink-400 tabular-nums">{accPct}% ของรวม</span>
+                      <span className="text-ink-900 tabular-nums font-semibold w-28 text-right">{formatBaht(a.total)}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -97,6 +127,18 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
   const [rptData, setRptData]   = useState(null)
   const [rptLoading, setRptLoading] = useState(true)
   const [rptError, setRptError]     = useState('')
+  const [collapsedRptGroups, setCollapsedRptGroups] = useState({})
+
+  const toggleRptGroup = (groupId) => {
+    setCollapsedRptGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))
+  }
+
+  const expandAllRpt = () => setCollapsedRptGroups({})
+  const collapseAllRpt = () => {
+    const allCollapsed = {}
+    ;(rptData?.groups ?? []).forEach((g) => { allCollapsed[g.groupId] = true })
+    setCollapsedRptGroups(allCollapsed)
+  }
 
   // ── State Drill-down Modal ───────────────────────────────────
   const [drillTarget, setDrillTarget] = useState(null)
@@ -221,15 +263,37 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
 
         {!dashLoading && dashData && (
           <>
-            {/* สรุปกำไร-ขาดทุนภาพรวม */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <StatCard label="รายได้รวม (ยอดขายดันเข้าร้านค้าจาก Workshop)" value={formatBaht(dashData.totalRevenue)} accent="text-sage" />
-              <StatCard label="รายจ่ายรวม" value={formatBaht(dashData.totalExpenses)} accent="text-rose" />
+            {/* สรุปกำไร-ขาดทุนภาพรวม (5 การ์ดตามหลักการบริหาร P&L) */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <StatCard
-                label={isProfit ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ'}
+                label="รายได้สุทธิรวม"
+                value={formatBaht(dashData.totalRevenue)}
+                accent="text-sage"
+                sub="100.0% ฐานรายได้สุทธิ"
+              />
+              <StatCard
+                label="ต้นทุนสินค้า (COGS)"
+                value={formatBaht(dashData.totalCogs ?? 0)}
+                accent="text-ink-700"
+                sub={dashData.cogsPct ? `${dashData.cogsPct}% ของรายได้` : '-'}
+              />
+              <StatCard
+                label="กำไรขั้นต้น (Gross Profit)"
+                value={formatBaht(dashData.grossProfit ?? (dashData.totalRevenue - (dashData.totalCogs ?? 0)))}
+                accent={(dashData.grossProfit ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose'}
+                sub={dashData.grossProfitPct ? `${dashData.grossProfitPct}% ของรายได้` : '-'}
+              />
+              <StatCard
+                label="ค่าใช้จ่ายทั้งหมด"
+                value={formatBaht(dashData.totalExpenses)}
+                accent="text-rose"
+                sub={dashData.expensePct ? `${dashData.expensePct}% Attribution Rate` : '-'}
+              />
+              <StatCard
+                label={isProfit ? 'กำไรสุทธิ (ประมาณการ)' : 'ขาดทุนสุทธิ (ประมาณการ)'}
                 value={formatBaht(Math.abs(dashData.netProfit))}
                 accent={isProfit ? 'text-sage' : 'text-rose'}
-                sub={isProfit ? '▲ รายได้มากกว่ารายจ่าย' : '▼ รายจ่ายมากกว่ารายได้'}
+                sub={dashData.netProfitPct ? `${dashData.netProfitPct}% สัดส่วนกำไร` : (isProfit ? '▲ กำไรสุทธิ' : '▼ ขาดทุนสุทธิ')}
               />
             </div>
 
@@ -321,17 +385,21 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
               แสดง % ของยอดรวม และสามารถกด <b>🔍 จิ้มดูรายการ</b> เพื่อเจาะลึกที่มาของยอดใช้จ่ายในเดือน/ปี ได้ทันที
             </p>
           </div>
-          <div className="flex gap-2 items-center">
-            <select
-              id="exec-rpt-year"
-              className="glass-input text-sm w-28"
-              value={rptYear}
-              onChange={(e) => setRptYear(Number(e.target.value))}
+          <div className="flex gap-2 items-center flex-wrap">
+            <button
+              type="button"
+              onClick={expandAllRpt}
+              className="btn-ghost text-xs px-2.5 py-1.5 flex items-center gap-1 border border-black/10 hover:bg-black/5 cursor-pointer"
             >
-              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+              <span>📂</span> ขยายทั้งหมด
+            </button>
+            <button
+              type="button"
+              onClick={collapseAllRpt}
+              className="btn-ghost text-xs px-2.5 py-1.5 flex items-center gap-1 border border-black/10 hover:bg-black/5 cursor-pointer"
+            >
+              <span>📁</span> ย่อทั้งหมด
+            </button>
             <select
               id="exec-rpt-month"
               className="glass-input text-sm w-36"
@@ -341,6 +409,16 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
               <option value="">ทั้งปี</option>
               {THAI_MONTHS.map((name, i) => (
                 <option key={i + 1} value={i + 1}>{name}</option>
+              ))}
+            </select>
+            <select
+              id="exec-rpt-year"
+              className="glass-input text-sm w-28"
+              value={rptYear}
+              onChange={(e) => setRptYear(Number(e.target.value))}
+            >
+              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
               ))}
             </select>
           </div>
@@ -369,14 +447,17 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
               <p className="font-display italic text-3xl text-gold-dark font-bold">{formatBaht(rptData.grandTotal)}</p>
             </div>
 
-            {/* กลุ่มรหัสบัญชีจากหน้า "กลุ่มรหัสบัญชี" พร้อม % รวม */}
+            {/* กลุ่มรหัสบัญชีจากหน้า "กลุ่มรหัสบัญชี" พร้อม % รวม และ % Attribution Rate */}
             {rptData.groups?.length > 0
               ? rptData.groups.map((g) => (
                   <GroupBlock
                     key={g.groupId}
                     group={g}
                     grandTotal={rptData.grandTotal}
+                    netRevenue={dashData?.totalRevenue ?? 0}
                     onInspect={handleInspectGroup}
+                    isCollapsed={Boolean(collapsedRptGroups[g.groupId])}
+                    onToggleCollapse={() => toggleRptGroup(g.groupId)}
                   />
                 ))
               : null

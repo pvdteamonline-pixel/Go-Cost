@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import { THAI_MONTHS } from '../lib/constants'
 import { MONTH_ABBR, CODE_RE, normalizeCodeCell, parseAccountingNumber, findHeaderRow, parseTrialBalanceSheet } from '../lib/accountingFileParser'
+import { downloadPLTemplate, downloadTrialBalanceTemplate } from '../lib/templateGenerator'
+import { autoSaveAndGroupAccount, detectCategoryFromCode } from '../lib/accountAutoGroup'
+import { buildExecutivePivotData } from '../lib/executiveReportPivot'
 
 function formatBaht(n) {
   return (n ?? 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -29,12 +32,16 @@ function PreviewModal({ fileType, parsedRows, checkResult, year, month, currentU
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [previewError, setPreviewError] = useState('')
 
+  const [newCodeForms, setNewCodeForms] = useState({})
+  const [autoSaving, setAutoSaving] = useState(false)
+  const [noticeMsg, setNoticeMsg] = useState('')
+
   const tbMatched   = checkResult?.matched ?? []
   const tbUnmatched = checkResult?.unmatched ?? []
   const tbTotalNet  = tbMatched.reduce((s, r) => s + (r.amount ?? 0), 0)
 
   // เรียก RPC เพื่อ simulate ผลลัพธ์จริง (เฉพาะ pl_estimate)
-  useEffect(() => {
+  const reloadPreview = useCallback(() => {
     if (fileType !== 'pl_estimate' || !parsedRows?.length) return
     setLoadingPreview(true)
     setPreviewError('')
@@ -50,8 +57,94 @@ function PreviewModal({ fileType, parsedRows, checkResult, year, month, currentU
     })
   }, [fileType, parsedRows, year, currentUserId])
 
+  useEffect(() => {
+    reloadPreview()
+  }, [reloadPreview])
+
   const exec = previewData?.execReport
   const tax  = previewData?.taxReport
+
+  // Map รหัสบัญชี กับ ชื่อบัญชีที่อ่านได้จากไฟล์ Excel
+  const codeToNameMap = useMemo(() => {
+    const map = {}
+    if (!parsedRows || !Array.isArray(parsedRows)) return map
+    for (const r of parsedRows) {
+      if (r.code && !map[r.code]) {
+        const nameVal = r.name || r.description || ''
+        if (nameVal && nameVal.trim()) {
+          map[r.code] = nameVal.trim()
+        }
+      }
+    }
+    return map
+  }, [parsedRows])
+
+  const unmatchedList = useMemo(() => {
+    if (fileType === 'pl_estimate') {
+      return exec?.ungroupedAccounts ?? []
+    }
+    return tbUnmatched
+  }, [fileType, exec, tbUnmatched])
+
+  function updateForm(code, field, val, defaultName = '') {
+    setNewCodeForms((prev) => ({
+      ...prev,
+      [code]: {
+        name: defaultName,
+        category: detectCategoryFromCode(code),
+        description: '',
+        ...(prev[code] || {}),
+        [field]: val,
+      },
+    }))
+  }
+
+  async function handleAutoSaveNewAccount(codeToSave, defaultName = '') {
+    const detail = newCodeForms[codeToSave] || {}
+    const finalName = detail.name !== undefined ? detail.name : (defaultName || codeToNameMap[codeToSave] || codeToSave)
+    setAutoSaving(true)
+    setNoticeMsg('')
+    setPreviewError('')
+    const res = await autoSaveAndGroupAccount({
+      code: codeToSave,
+      name: finalName || codeToSave,
+      category: detail.category || detectCategoryFromCode(codeToSave),
+      description: detail.description || '',
+    }, currentUserId)
+    setAutoSaving(false)
+
+    if (res.success) {
+      setNoticeMsg(res.message)
+      reloadPreview()
+    } else {
+      setPreviewError(res.message)
+    }
+  }
+
+  async function handleBatchAutoSaveAll() {
+    if (!unmatchedList.length) return
+    setAutoSaving(true)
+    setNoticeMsg('')
+    setPreviewError('')
+    let count = 0
+    for (const item of unmatchedList) {
+      const codeToSave = item.code
+      const detail = newCodeForms[codeToSave] || {}
+      const finalName = detail.name !== undefined ? detail.name : (item.name || codeToNameMap[codeToSave] || codeToSave)
+      const res = await autoSaveAndGroupAccount({
+        code: codeToSave,
+        name: finalName || codeToSave,
+        category: detail.category || detectCategoryFromCode(codeToSave),
+        description: detail.description || '',
+      }, currentUserId)
+      if (res.success) count++
+    }
+    setAutoSaving(false)
+    if (count > 0) {
+      setNoticeMsg(`✨ บันทึกรหัสใหม่ ${count} รายการและจัดเข้ากลุ่มตามหมวดให้อัตโนมัติเรียบร้อยแล้ว`)
+      reloadPreview()
+    }
+  }
 
   return (
     <div
@@ -89,6 +182,87 @@ function PreviewModal({ fileType, parsedRows, checkResult, year, month, currentU
         {/* Body */}
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
 
+          {noticeMsg && (
+            <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-xl px-4 py-2.5 flex items-center gap-2">
+              <span>✅</span>
+              <span>{noticeMsg}</span>
+            </p>
+          )}
+
+          {/* ─── Card จัดการรหัสบัญชีใหม่ / รหัสยังไม่มีกลุ่ม ─── */}
+          {unmatchedList.length > 0 && (
+            <div className="bg-amber-50/90 border border-gold/40 rounded-2xl p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">⚠️</span>
+                  <div>
+                    <h4 className="text-gold-dark font-medium text-sm">พบ {unmatchedList.length} รหัสบัญชีใหม่/ที่ยังไม่มีกลุ่ม</h4>
+                    <p className="text-ink-500 text-xs mt-0.5">
+                      ระบบแยกหมวดหมู่อัตโนมัติตามเลขนำหน้า (เช่น รหัส 4... จะจัดเข้าหมวด 4 รายได้) สามารถกดบันทึกแล้วระบบจะดึงเข้ากลุ่มและรีเฟรชให้ทันที
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleBatchAutoSaveAll}
+                  disabled={autoSaving}
+                  className="btn-primary text-xs flex items-center gap-1.5 px-3 py-2 disabled:opacity-60 cursor-pointer"
+                >
+                  {autoSaving ? 'กำลังบันทึก...' : '✨ บันทึกทั้งหมด & จัดเข้ากลุ่มอัตโนมัติ'}
+                </button>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                {unmatchedList.map((item) => {
+                  const code = item.code
+                  const defaultName = item.name || codeToNameMap[code] || ''
+                  const form = newCodeForms[code] || {
+                    name: defaultName,
+                    category: detectCategoryFromCode(code),
+                    description: '',
+                  }
+                  const currentName = form.name !== undefined ? form.name : defaultName
+
+                  return (
+                    <div key={code} className="grid grid-cols-1 sm:grid-cols-5 gap-2 bg-white rounded-xl p-2.5 border border-black/10 items-center">
+                      <span className="font-mono text-xs font-bold text-ocean px-1">{code}</span>
+                      <input
+                        className="glass-input text-xs"
+                        placeholder="ชื่อบัญชี *"
+                        value={currentName}
+                        onChange={(e) => updateForm(code, 'name', e.target.value, defaultName)}
+                      />
+                      <select
+                        className="glass-input text-xs"
+                        value={form.category || detectCategoryFromCode(code)}
+                        onChange={(e) => updateForm(code, 'category', e.target.value, defaultName)}
+                      >
+                        <option value="สินทรัพย์ (Assets)">1 - สินทรัพย์ (Assets)</option>
+                        <option value="หนี้สิน (Liabilities)">2 - หนี้สิน (Liabilities)</option>
+                        <option value="ส่วนของผู้ถือหุ้น / ทุน (Equity)">3 - ส่วนของผู้ถือหุ้น (Equity)</option>
+                        <option value="รายได้ (Revenue)">4 - รายได้ (Revenue)</option>
+                        <option value="ต้นทุนขาย / ต้นทุนผลิต (Cost of Sales)">5 - ต้นทุนขาย (Cost of Sales)</option>
+                        <option value="ค่าใช้จ่ายในการขายและบริหาร (Selling & Administrative Expenses)">6 - ค่าใช้จ่ายบริหาร (Expenses)</option>
+                      </select>
+                      <input
+                        className="glass-input text-xs"
+                        placeholder="รายละเอียด (ถ้ามี)"
+                        value={form.description}
+                        onChange={(e) => updateForm(code, 'description', e.target.value, defaultName)}
+                      />
+                      <button
+                        onClick={() => handleAutoSaveNewAccount(code, currentName)}
+                        disabled={autoSaving}
+                        className="btn-ghost text-xs bg-amber-100/60 text-gold-dark hover:bg-amber-200/80 font-medium py-1.5 px-2 rounded-lg cursor-pointer flex items-center justify-center gap-1"
+                      >
+                        <span>✨ บันทึก &amp; เข้ากลุ่ม</span>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* ─── pl_estimate: Loading / Error ─── */}
           {fileType === 'pl_estimate' && loadingPreview && (
             <div className="flex items-center justify-center py-16 gap-3">
@@ -101,92 +275,94 @@ function PreviewModal({ fileType, parsedRows, checkResult, year, month, currentU
           )}
 
           {/* ─── EXEC REPORT TEMPLATE ─── */}
-          {fileType === 'pl_estimate' && tab === 'exec' && exec && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 flex-wrap text-xs text-ink-400">
-                <span className="bg-sage-pale text-sage px-2.5 py-0.5 rounded-lg font-medium">รายงานผู้บริหาร (Preview)</span>
-                <span>ปี {year} — ข้อมูลจากไฟล์ที่กำลังจะนำเข้า ยังไม่ถูกบันทึก</span>
-              </div>
-              <div className="overflow-x-auto border border-black/10 rounded-xl">
-                <table className="w-full text-xs border-collapse min-w-[1200px]">
-                  <thead>
-                    <tr className="border-b-2 border-black/15 text-ink-500">
-                      <th className="text-left py-2 pr-2 w-24">รหัสบัญชี</th>
-                      <th className="text-left py-2 pr-2 w-52">ชื่อบัญชี</th>
-                      {MONTH_SHORT.map((m) => <th key={m} className="text-right py-2 px-2 w-20">{m}</th>)}
-                      <th className="text-right py-2 pl-2 w-24 font-semibold">รวม</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* รายได้รวม */}
-                    <tr className="bg-sage-pale/40 font-medium">
-                      <td className="py-1.5" colSpan={2}>รายได้รวม</td>
-                      {exec.revenueMonthly.map((v, i) => (
-                        <td key={i} className="text-right py-1.5 px-2 text-sage tabular-nums">{fmtPrev(v)}</td>
-                      ))}
-                      <td className="text-right py-1.5 pl-2 text-sage tabular-nums">{fmtPrev(exec.revenueTotal)}</td>
-                    </tr>
-
-                    {/* แต่ละกลุ่ม */}
-                    {exec.groups.map((g) => (
-                      <React.Fragment key={g.groupId}>
-                        <tr className="bg-ink-100/60">
-                          <td colSpan={2} className="py-2 px-1">
-                            <span className="doc-badge mr-2">{g.code}</span>
-                            <span className="text-ink-900 font-medium">{g.name}</span>
-                            {g.pctOfRevenueTotal !== null && (
-                              <span className="text-ink-400 ml-2">({g.pctOfRevenueTotal}% ของรายได้)</span>
-                            )}
-                          </td>
-                          {g.pctOfRevenueMonthly.map((p, i) => (
-                            <td key={i} className="text-right py-2 px-2 text-ink-400 tabular-nums">{p !== null ? `${p}%` : ''}</td>
-                          ))}
-                          <td></td>
-                        </tr>
-                        {g.accounts.map((a) => (
-                          <tr key={a.code} className="border-b border-black/5 hover:bg-black/[0.015]">
-                            <td className="py-1 pr-2 pl-4 text-ocean font-mono">{a.code}</td>
-                            <td className="py-1 pr-2 text-ink-700">{a.name}</td>
-                            {a.monthly.map((v, i) => (
-                              <td key={i} className="text-right py-1 px-2 text-ink-800 tabular-nums">{v !== 0 ? fmtPrev(v) : ''}</td>
-                            ))}
-                            <td className="text-right py-1 pl-2 text-ink-900 font-medium tabular-nums">{fmtPrev(a.total)}</td>
-                          </tr>
+          {fileType === 'pl_estimate' && tab === 'exec' && exec && (() => {
+            const pivotData = buildExecutivePivotData(exec, year)
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 flex-wrap text-xs text-ink-400">
+                  <span className="bg-sage-pale text-sage px-2.5 py-0.5 rounded-lg font-medium">รายงานผู้บริหาร (Preview)</span>
+                  <span>ปี {year} — ข้อมูลจากไฟล์ที่กำลังจะนำเข้า ยังไม่ถูกบันทึก</span>
+                </div>
+                <div className="overflow-x-auto border border-black/10 rounded-xl">
+                  <table className="w-full text-xs border-collapse min-w-[1300px]">
+                    <thead>
+                      <tr className="border-b-2 border-black/15 text-ink-700 font-bold bg-ink-100/60">
+                        <th className="text-left py-2 px-2 w-24">รหัสบัญชี</th>
+                        <th className="text-left py-2 px-2 w-56">ชื่อบัญชี</th>
+                        {MONTH_SHORT.map((m) => (
+                          <th key={m} className="text-right py-2 px-1.5 w-16">{m}</th>
                         ))}
-                        <tr className="bg-white/40 border-b border-black/10">
-                          <td colSpan={2} className="py-1 pl-4 text-ink-400 italic">รวม {g.name}</td>
-                          {g.monthly.map((v, i) => (
-                            <td key={i} className="text-right py-1 px-2 text-ink-600 font-medium tabular-nums">{fmtPrev(v)}</td>
-                          ))}
-                          <td className="text-right py-1 pl-2 text-ink-600 font-medium tabular-nums">{fmtPrev(g.total)}</td>
-                        </tr>
-                      </React.Fragment>
-                    ))}
+                        <th className="text-right py-2 px-2 w-24 font-semibold">รวม</th>
+                        <th className="text-right py-2 px-2 w-24 text-ocean">เฉลี่ย/เดือน</th>
+                        <th className="text-right py-2 px-2 w-20">% ของรายได้</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pivotData.rows.map((r, idx) => {
+                        if (r.type === 'section' || r.type === 'section-header') {
+                          return (
+                            <tr key={idx} className="bg-ocean/10 font-bold text-ocean">
+                              <td colSpan={17} className="py-1.5 px-2">{r.title}</td>
+                            </tr>
+                          )
+                        }
+                        if (r.type === 'category-header') {
+                          return (
+                            <tr key={idx} className="bg-ink-100/80 font-semibold border-t border-black/10">
+                              <td colSpan={2} className="py-1.5 px-2">{r.title}</td>
+                              <td colSpan={15}></td>
+                            </tr>
+                          )
+                        }
+                        if (r.type === 'pct-row') {
+                          return (
+                            <tr key={idx} className="text-[11px] text-ink-400 italic">
+                              <td></td>
+                              <td className="py-1 px-2">{r.name}</td>
+                              <td colSpan={14}></td>
+                              <td className="text-right py-1 px-2">{r.pctValue || ''}</td>
+                            </tr>
+                          )
+                        }
+                        if (r.type === 'diff-row') {
+                          return (
+                            <tr key={idx} className="border-b border-black/10 bg-gray-50 text-ink-500">
+                              <td></td>
+                              <td className="py-1 px-2">{r.name}</td>
+                              <td colSpan={14}></td>
+                              <td className="text-right py-1 px-2">{r.value || '-'}</td>
+                            </tr>
+                          )
+                        }
 
-                    {/* รหัสที่ยังไม่มีกลุ่ม */}
-                    {exec.ungroupedAccounts.length > 0 && (
-                      <>
-                        <tr className="bg-gold-pale/40">
-                          <td colSpan={2} className="py-2 px-1 text-gold-dark font-medium">⚠️ รหัสบัญชีที่ยังไม่มีกลุ่ม</td>
-                          <td colSpan={13}></td>
-                        </tr>
-                        {exec.ungroupedAccounts.map((a) => (
-                          <tr key={a.code} className="border-b border-black/5">
-                            <td className="py-1 pr-2 pl-4 text-ocean font-mono">{a.code}</td>
-                            <td className="py-1 pr-2 text-ink-700">{a.name}</td>
-                            {a.monthly.map((v, i) => (
-                              <td key={i} className="text-right py-1 px-2 text-ink-800 tabular-nums">{v !== 0 ? fmtPrev(v) : ''}</td>
+                        const isHighlight = r.id === 'total-revenue' || r.id === 'gross-profit' || r.id === 'total-exp' || r.id === 'net-profit'
+                        const isBold = r.isBold || r.type === 'subtotal' || r.type === 'formula'
+
+                        return (
+                          <tr key={idx} className={`border-b border-black/5 ${isHighlight ? 'bg-ink-100/50 font-bold' : isBold ? 'font-semibold' : ''}`}>
+                            <td className="py-1 px-2 font-mono text-ocean">{r.code || ''}</td>
+                            <td className="py-1 px-2">{r.name}</td>
+                            {(r.monthly || Array(12).fill(0)).map((v, mIdx) => (
+                              <td key={mIdx} className="text-right py-1 px-1.5 tabular-nums">
+                                {v !== 0 ? fmtPrev(v) : ''}
+                              </td>
                             ))}
-                            <td className="text-right py-1 pl-2 text-ink-900 font-medium tabular-nums">{fmtPrev(a.total)}</td>
+                            <td className="text-right py-1 px-2 font-bold tabular-nums">{fmtPrev(r.total)}</td>
+                            <td className="text-right py-1 px-2 font-semibold tabular-nums text-ocean">
+                              {r.showAvg || r.type === 'subtotal' || r.type === 'formula' ? fmtPrev(r.avgPerMonth) : '-'}
+                            </td>
+                            <td className="text-right py-1 px-2 tabular-nums">
+                              {r.pctOfRevenue !== null && r.pctOfRevenue !== undefined ? `${r.pctOfRevenue}%` : ''}
+                            </td>
                           </tr>
-                        ))}
-                      </>
-                    )}
-                  </tbody>
-                </table>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* ─── TAX REPORT TEMPLATE ─── */}
           {fileType === 'pl_estimate' && tab === 'tax' && tax && (
@@ -377,6 +553,20 @@ export default function AccountFileImportPage() {
   const [addingLine, setAddingLine] = useState(false)
   const [newLine, setNewLine] = useState({ code: '', month: '', amount: '', description: '' })
   const [accountOptions, setAccountOptions] = useState([])
+
+  const codeToNameMap = useMemo(() => {
+    const map = {}
+    if (!parsedRows || !Array.isArray(parsedRows)) return map
+    for (const r of parsedRows) {
+      if (r.code && !map[r.code]) {
+        const nameVal = r.name || r.description || ''
+        if (nameVal && nameVal.trim()) {
+          map[r.code] = nameVal.trim()
+        }
+      }
+    }
+    return map
+  }, [parsedRows])
 
   const canUse = hasPagePermission(currentUser, 'account-import')
   const activeType = FILE_TYPES.find((t) => t.value === fileType)
@@ -650,8 +840,104 @@ export default function AccountFileImportPage() {
       {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
 
-      <div className="glass p-6 space-y-4">
-        <div className="flex gap-3 flex-wrap items-end">
+      <div className="glass p-6 space-y-5">
+        {/* Template Preview & Download Header */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-ink-900 font-medium text-lg">แนบไฟล์ {activeType.label}</h2>
+            <p className="text-ink-500 text-xs mt-0.5">{activeType.hint}</p>
+          </div>
+          <button
+            onClick={fileType === 'pl_estimate' ? downloadPLTemplate : downloadTrialBalanceTemplate}
+            className="btn-ghost text-xs bg-amber-50/80 hover:bg-amber-100/80 border border-gold/40 text-gold-dark font-medium flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer"
+          >
+            <span>📥</span>
+            <span>ดาวน์โหลดไฟล์ Template {fileType === 'pl_estimate' ? 'P&L' : 'งบทดลอง'} (.xlsx)</span>
+          </button>
+        </div>
+
+        {/* Template Guidance & Live Preview Card */}
+        <div className="bg-amber-50/40 border border-gold/30 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gold-dark uppercase tracking-wider flex items-center gap-1.5">
+              <span>💡</span> ตัวอย่างโครงสร้างไฟล์ {activeType.label}
+            </span>
+            <span className="text-[11px] text-ink-400">ไฟล์รูปแบบ Microsoft Excel (.xlsx)</span>
+          </div>
+          
+          <div className="overflow-x-auto rounded-xl border border-black/10 bg-white">
+            {fileType === 'pl_estimate' ? (
+              <table className="w-full text-xs text-left whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gold-pale/60 text-gold-dark font-medium border-b border-black/10">
+                    <th className="px-3 py-2 border-r border-black/5">รหัสบัญชี *</th>
+                    <th className="px-3 py-2 border-r border-black/5">ชื่อบัญชี *</th>
+                    <th className="px-3 py-2 border-r border-black/5">ม.ค.</th>
+                    <th className="px-3 py-2 border-r border-black/5">ก.พ.</th>
+                    <th className="px-3 py-2 border-r border-black/5">มี.ค.</th>
+                    <th className="px-3 py-2 border-r border-black/5">...</th>
+                    <th className="px-3 py-2">ธ.ค.</th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink-700 divide-y divide-black/5">
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-ink-900 border-r border-black/5">4001-01</td>
+                    <td className="px-3 py-2 border-r border-black/5">รายได้จากการขายสินค้า</td>
+                    <td className="px-3 py-2 border-r border-black/5">150,000</td>
+                    <td className="px-3 py-2 border-r border-black/5">160,000</td>
+                    <td className="px-3 py-2 border-r border-black/5">170,000</td>
+                    <td className="px-3 py-2 border-r border-black/5 text-ink-400">...</td>
+                    <td className="px-3 py-2">250,000</td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-ink-900 border-r border-black/5">6001-01</td>
+                    <td className="px-3 py-2 border-r border-black/5">ค่าเงินเดือนพนักงาน</td>
+                    <td className="px-3 py-2 border-r border-black/5">45,000</td>
+                    <td className="px-3 py-2 border-r border-black/5">45,000</td>
+                    <td className="px-3 py-2 border-r border-black/5">45,000</td>
+                    <td className="px-3 py-2 border-r border-black/5 text-ink-400">...</td>
+                    <td className="px-3 py-2">45,000</td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-xs text-left whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gold-pale/40 text-ink-500 border-b border-black/5">
+                    <th colSpan="2" className="px-3 py-1 text-center border-r border-black/5">ข้อมูลบัญชี</th>
+                    <th colSpan="2" className="px-3 py-1 text-center border-r border-black/5">ยอดยกมา</th>
+                    <th colSpan="2" className="px-3 py-1 text-center border-r border-black/5 bg-gold-pale/70 text-gold-dark font-semibold">ยอดเคลื่อนไหว (ใช้คอลัมน์นี้)</th>
+                    <th colSpan="2" className="px-3 py-1 text-center">ยอดคงเหลือ</th>
+                  </tr>
+                  <tr className="bg-gold-pale/60 text-gold-dark font-medium border-b border-black/10">
+                    <th className="px-3 py-2 border-r border-black/5">เลขที่บัญชี</th>
+                    <th className="px-3 py-2 border-r border-black/5">ชื่อบัญชี</th>
+                    <th className="px-3 py-2 border-r border-black/5">เดบิต</th>
+                    <th className="px-3 py-2 border-r border-black/5">เครดิต</th>
+                    <th className="px-3 py-2 border-r border-black/5 bg-gold-pale/90 font-bold">เดบิต</th>
+                    <th className="px-3 py-2 border-r border-black/5 bg-gold-pale/90 font-bold">เครดิต</th>
+                    <th className="px-3 py-2 border-r border-black/5">เดบิต</th>
+                    <th className="px-3 py-2">เครดิต</th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink-700 divide-y divide-black/5">
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-ink-900 border-r border-black/5">1110-01</td>
+                    <td className="px-3 py-2 border-r border-black/5">เงินสดในมือ</td>
+                    <td className="px-3 py-2 border-r border-black/5">50,000</td>
+                    <td className="px-3 py-2 border-r border-black/5">0</td>
+                    <td className="px-3 py-2 border-r border-black/5 bg-gold-pale/20 font-medium">15,000</td>
+                    <td className="px-3 py-2 border-r border-black/5 bg-gold-pale/20 font-medium">8,000</td>
+                    <td className="px-3 py-2 border-r border-black/5">57,000</td>
+                    <td className="px-3 py-2">0</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 flex-wrap items-end pt-2">
           <div>
             <label className="block text-xs text-ink-600 mb-1">ปี</label>
             <select className="glass-input text-sm" value={year} onChange={(e) => setYear(Number(e.target.value))}>
@@ -659,7 +945,7 @@ export default function AccountFileImportPage() {
             </select>
           </div>
           <div className="flex-1 min-w-[240px]">
-            <label className="block text-xs text-ink-600 mb-1">ไฟล์ .xlsx {activeType.label}</label>
+            <label className="block text-xs text-ink-600 mb-1">เลือกไฟล์ .xlsx ({activeType.label})</label>
             <input type="file" accept=".xlsx" className="glass-input w-full text-sm" onChange={handleFileSelect} />
           </div>
         </div>
@@ -703,19 +989,103 @@ export default function AccountFileImportPage() {
             </p>
 
             {fileType === 'pl_estimate' && uniqueUnmatchedCodes.length > 0 && (
-              <div className="bg-gold-pale border border-gold/30 rounded-lg p-3 space-y-2">
-                <p className="text-gold-dark text-sm">พบรหัสบัญชีใหม่ — กรอกข้อมูลให้ครบก่อนนำเข้า:</p>
-                {uniqueUnmatchedCodes.map((code) => (
-                  <div key={code} className="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-white/60 rounded-lg p-2">
-                    <span className="text-ink-900 text-sm self-center">{code}</span>
-                    <input className="glass-input text-xs" placeholder="ชื่อบัญชี *"
-                           value={newCodeDetails[code]?.name || ''} onChange={(e) => updateNewCodeDetail(code, 'name', e.target.value)} />
-                    <input className="glass-input text-xs" placeholder="หมวดหมู่บัญชี *"
-                           value={newCodeDetails[code]?.category || ''} onChange={(e) => updateNewCodeDetail(code, 'category', e.target.value)} />
-                    <input className="glass-input text-xs" placeholder="รายละเอียด *"
-                           value={newCodeDetails[code]?.description || ''} onChange={(e) => updateNewCodeDetail(code, 'description', e.target.value)} />
+              <div className="bg-amber-50/90 border border-gold/40 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <p className="text-gold-dark font-medium text-sm">พบ {uniqueUnmatchedCodes.length} รหัสบัญชีใหม่ในไฟล์ที่ไม่อยู่ในผังบัญชี:</p>
+                    <p className="text-ink-500 text-xs mt-0.5">ระบบเลือกหมวดให้อัตโนมัติตามเลขนำหน้า (เช่น 4... คือหมวดรายได้) กดบันทึกแล้วระบบจะจัดเข้ากลุ่มให้อัตโนมัติ</p>
                   </div>
-                ))}
+                  <button
+                    onClick={async () => {
+                      setBusy(true)
+                      setNotice('')
+                      let count = 0
+                      for (const code of uniqueUnmatchedCodes) {
+                        const detail = newCodeDetails[code] || {}
+                        const res = await autoSaveAndGroupAccount({
+                          code,
+                          name: detail.name || code,
+                          category: detail.category || detectCategoryFromCode(code),
+                          description: detail.description || '',
+                        }, currentUser?.id)
+                        if (res.success) count++
+                      }
+                      setBusy(false)
+                      if (count > 0) {
+                        setNotice(`✨ บันทึกรหัสใหม่ ${count} รายการและจัดเข้ากลุ่มตามหมวดให้อัตโนมัติแล้ว`)
+                        // Re-parse sheet or trigger re-check
+                        handleParseSheet()
+                      }
+                    }}
+                    disabled={busy}
+                    className="btn-primary text-xs flex items-center gap-1 px-3 py-2 cursor-pointer"
+                  >
+                    ✨ บันทึกทั้งหมด &amp; จัดเข้ากลุ่มอัตโนมัติ
+                  </button>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  {uniqueUnmatchedCodes.map((code) => {
+                    const defaultName = codeToNameMap[code] || ''
+                    const form = newCodeDetails[code] || {
+                      name: defaultName,
+                      category: detectCategoryFromCode(code),
+                      description: '',
+                    }
+                    const currentName = form.name !== undefined ? form.name : defaultName
+
+                    return (
+                      <div key={code} className="grid grid-cols-1 sm:grid-cols-5 gap-2 bg-white rounded-xl p-2.5 border border-black/10 items-center">
+                        <span className="font-mono text-xs font-bold text-ocean px-1">{code}</span>
+                        <input
+                          className="glass-input text-xs"
+                          placeholder="ชื่อบัญชี *"
+                          value={currentName}
+                          onChange={(e) => updateNewCodeDetail(code, 'name', e.target.value)}
+                        />
+                        <select
+                          className="glass-input text-xs"
+                          value={form.category || detectCategoryFromCode(code)}
+                          onChange={(e) => updateNewCodeDetail(code, 'category', e.target.value)}
+                        >
+                          <option value="สินทรัพย์ (Assets)">1 - สินทรัพย์ (Assets)</option>
+                          <option value="หนี้สิน (Liabilities)">2 - หนี้สิน (Liabilities)</option>
+                          <option value="ส่วนของผู้ถือหุ้น / ทุน (Equity)">3 - ส่วนของผู้ถือหุ้น (Equity)</option>
+                          <option value="รายได้ (Revenue)">4 - รายได้ (Revenue)</option>
+                          <option value="ต้นทุนขาย / ต้นทุนผลิต (Cost of Sales)">5 - ต้นทุนขาย (Cost of Sales)</option>
+                          <option value="ค่าใช้จ่ายในการขายและบริหาร (Selling & Administrative Expenses)">6 - ค่าใช้จ่ายบริหาร (Expenses)</option>
+                        </select>
+                        <input
+                          className="glass-input text-xs"
+                          placeholder="รายละเอียด (ถ้ามี)"
+                          value={form.description || ''}
+                          onChange={(e) => updateNewCodeDetail(code, 'description', e.target.value)}
+                        />
+                        <button
+                          onClick={async () => {
+                            setBusy(true)
+                            setNotice('')
+                            const res = await autoSaveAndGroupAccount({
+                              code,
+                              name: currentName || code,
+                              category: form.category || detectCategoryFromCode(code),
+                              description: form.description || '',
+                            }, currentUser?.id)
+                            setBusy(false)
+                            if (res.success) {
+                              setNotice(res.message)
+                              handleParseSheet()
+                            }
+                          }}
+                          disabled={busy}
+                          className="btn-ghost text-xs bg-amber-100/60 text-gold-dark hover:bg-amber-200/80 font-medium py-1.5 px-2 rounded-lg cursor-pointer"
+                        >
+                          ✨ บันทึก &amp; เข้ากลุ่ม
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
 

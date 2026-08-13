@@ -1,18 +1,20 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
+import { downloadAccountsTemplate } from '../lib/templateGenerator'
 
 function emptyForm() {
   return { id: null, code: '', name: '', category: '', description: '' }
 }
 
-// map หัวคอลัมน์ไฟล์ CSV (รองรับได้หลายชื่อหัวตาราง เผื่อไฟล์ในอนาคตเขียนต่างกันเล็กน้อย)
+// map หัวคอลัมน์ไฟล์ CSV / Excel (รองรับได้หลายชื่อหัวตาราง เผื่อไฟล์ในอนาคตเขียนต่างกันเล็กน้อย)
 const HEADER_MAP = {
-  code: ['รหัสบัญชี', 'code', 'account code'],
+  code: ['รหัสบัญชี', 'code', 'account code', 'เลขที่บัญชี'],
   name: ['ชื่อบัญชี', 'name', 'account name'],
-  category: ['หมวดหมู่บัญชี', 'category'],
+  category: ['หมวดหมู่บัญชี', 'หมวดหมู่', 'category'],
   description: ['รายละเอียด', 'description'],
 }
 
@@ -40,6 +42,7 @@ export default function AccountsManagementPage() {
   const [search, setSearch] = useState('')
   const [form, setForm] = useState(emptyForm())
   const [submitting, setSubmitting] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState({})
 
   // นำเข้าจากไฟล์
   const [importOpen, setImportOpen] = useState(false)
@@ -50,6 +53,39 @@ export default function AccountsManagementPage() {
   const [importLogs, setImportLogs] = useState([])
 
   const canUse = hasPagePermission(currentUser, 'accounts')
+
+  // จัดกลุ่มรหัสบัญชีตามหมวดหมู่ (หมวด 1 - 6)
+  const groupedAccounts = useMemo(() => {
+    const groupDefs = [
+      { key: '1', title: 'หมวด 1: สินทรัพย์ (Assets)', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300', items: [] },
+      { key: '2', title: 'หมวด 2: หนี้สิน (Liabilities)', badgeColor: 'bg-amber-100 text-amber-800 border-amber-300', items: [] },
+      { key: '3', title: 'หมวด 3: ส่วนของผู้ถือหุ้น / ทุน (Equity)', badgeColor: 'bg-purple-100 text-purple-800 border-purple-300', items: [] },
+      { key: '4', title: 'หมวด 4: รายได้ (Revenue)', badgeColor: 'bg-blue-100 text-blue-800 border-blue-300', items: [] },
+      { key: '5', title: 'หมวด 5: ต้นทุนขาย / ต้นทุนผลิต (Cost of Sales)', badgeColor: 'bg-orange-100 text-orange-800 border-orange-300', items: [] },
+      { key: '6', title: 'หมวด 6: ค่าใช้จ่ายในการขายและบริหาร (Expenses)', badgeColor: 'bg-rose-pale text-rose border-rose/30', items: [] },
+      { key: 'other', title: 'หมวดอื่นๆ / ยังไม่ได้ระบุหมวด', badgeColor: 'bg-slate-100 text-slate-700 border-slate-300', items: [] },
+    ]
+
+    for (const a of accounts) {
+      const codeStr = String(a.code || '').trim()
+      const firstDigit = codeStr.charAt(0)
+      const targetGroup = groupDefs.find((g) => g.key === firstDigit) || groupDefs[6]
+      targetGroup.items.push(a)
+    }
+
+    return groupDefs.filter((g) => g.items.length > 0)
+  }, [accounts])
+
+  const toggleGroup = (key) => {
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const expandAll = () => setCollapsedGroups({})
+  const collapseAll = () => {
+    const allCollapsed = {}
+    groupedAccounts.forEach((g) => { allCollapsed[g.key] = true })
+    setCollapsedGroups(allCollapsed)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -108,32 +144,56 @@ export default function AccountsManagementPage() {
     load()
   }
 
+  async function processImportRows(rows) {
+    if (!rows || rows.length === 0) {
+      setError('ไม่พบข้อมูลในไฟล์ หรือไม่พบคอลัมน์ "รหัสบัญชี" — เช็คหัวตารางในไฟล์')
+      return
+    }
+    const { data, error: err } = await supabase.rpc('check_new_account_codes', {
+      p_actor_id: currentUser?.id ?? null, p_rows: rows,
+    })
+    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
+    if (!data.success) return setError(data.message)
+    setImportResult(data)
+    setIncompleteRows(data.newIncomplete.map((r) => ({ ...r })))
+  }
+
   function handleFileSelect(e) {
     const file = e.target.files?.[0]
     if (!file) return
     setError('')
     setImportResult(null)
     setImportFileName(file.name)
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      encoding: 'UTF-8',
-      complete: async (results) => {
-        const rows = results.data.map(mapCsvRow).filter((r) => r.code)
-        if (rows.length === 0) {
-          setError('ไม่พบข้อมูลในไฟล์ หรือไม่พบคอลัมน์ "รหัสบัญชี" — เช็คหัวตารางในไฟล์')
-          return
+
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
+    if (isExcel) {
+      const reader = new FileReader()
+      reader.onload = async (evt) => {
+        try {
+          const bstr = evt.target.result
+          const wb = XLSX.read(bstr, { type: 'binary' })
+          const wsname = wb.SheetNames[0]
+          const ws = wb.Sheets[wsname]
+          const rawData = XLSX.utils.sheet_to_json(ws, { defval: '' })
+          const rows = rawData.map(mapCsvRow).filter((r) => r.code)
+          processImportRows(rows)
+        } catch (err) {
+          setError('อ่านไฟล์ Excel ไม่สำเร็จ: ' + err.message)
         }
-        const { data, error: err } = await supabase.rpc('check_new_account_codes', {
-          p_actor_id: currentUser?.id ?? null, p_rows: rows,
-        })
-        if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-        if (!data.success) return setError(data.message)
-        setImportResult(data)
-        setIncompleteRows(data.newIncomplete.map((r) => ({ ...r })))
-      },
-      error: (err) => setError('อ่านไฟล์ไม่สำเร็จ: ' + err.message),
-    })
+      }
+      reader.readAsBinaryString(file)
+    } else {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        encoding: 'UTF-8',
+        complete: (results) => {
+          const rows = results.data.map(mapCsvRow).filter((r) => r.code)
+          processImportRows(rows)
+        },
+        error: (err) => setError('อ่านไฟล์ไม่สำเร็จ: ' + err.message),
+      })
+    }
   }
 
   function updateIncompleteField(index, field, value) {
@@ -189,20 +249,70 @@ export default function AccountsManagementPage() {
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
 
       {importOpen && (
-        <div className="glass p-6 space-y-4">
-          <h2 className="text-ink-900 font-medium">นำเข้ารหัสบัญชีจากไฟล์ (CSV)</h2>
-          <p className="text-ink-500 text-xs">
-            ไฟล์ต้องมีหัวตาราง: รหัสบัญชี, ชื่อบัญชี, หมวดหมู่บัญชี, รายละเอียด — ระบบจะตรวจอัตโนมัติว่ารหัสไหนใหม่
-            (ยังไม่มีในระบบ) แล้วเพิ่มให้เอง ถ้ารหัสใหม่ข้อมูลไม่ครบจะให้กรอกเพิ่มก่อนบันทึก
-          </p>
-          <input type="file" accept=".csv" className="glass-input w-full" onChange={handleFileSelect} />
+        <div className="glass p-6 space-y-5">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-ink-900 font-medium text-lg">นำเข้ารหัสบัญชีจากไฟล์ (Excel / CSV)</h2>
+              <p className="text-ink-500 text-xs mt-0.5">
+                เลือกไฟล์เพื่อตรวจจับและเพิ่มรหัสบัญชีใหม่เข้าสู่ผังบัญชีของระบบ
+              </p>
+            </div>
+            <button
+              onClick={downloadAccountsTemplate}
+              className="btn-ghost text-xs bg-amber-50/80 hover:bg-amber-100/80 border border-gold/40 text-gold-dark font-medium flex items-center gap-1.5 px-3 py-2 rounded-xl"
+            >
+              <span>📥</span>
+              <span>ดาวน์โหลดไฟล์ Template (.xlsx)</span>
+            </button>
+          </div>
+
+          <div className="bg-amber-50/40 border border-gold/30 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-gold-dark uppercase tracking-wider flex items-center gap-1.5">
+                <span>💡</span> โครงสร้างไฟล์ Template ที่รองรับ
+              </span>
+              <span className="text-[11px] text-ink-400">รองรับทั้งไฟล์ .xlsx, .xls และ .csv</span>
+            </div>
+            
+            <div className="overflow-x-auto rounded-xl border border-black/10 bg-white">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="bg-gold-pale/60 text-gold-dark font-medium border-b border-black/10">
+                    <th className="px-3 py-2 border-r border-black/5">รหัสบัญชี *</th>
+                    <th className="px-3 py-2 border-r border-black/5">ชื่อบัญชี *</th>
+                    <th className="px-3 py-2 border-r border-black/5">หมวดหมู่บัญชี *</th>
+                    <th className="px-3 py-2">รายละเอียด *</th>
+                  </tr>
+                </thead>
+                <tbody className="text-ink-700 divide-y divide-black/5">
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-ink-900 border-r border-black/5">4001-01</td>
+                    <td className="px-3 py-2 border-r border-black/5">รายได้จากการขายสินค้า</td>
+                    <td className="px-3 py-2 border-r border-black/5"><span className="doc-badge">รายได้ (Revenue)</span></td>
+                    <td className="px-3 py-2 text-ink-500">รายได้หลักจากการจำหน่ายสินค้า</td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-ink-900 border-r border-black/5">5001-01</td>
+                    <td className="px-3 py-2 border-r border-black/5">ต้นทุนสินค้าขาย</td>
+                    <td className="px-3 py-2 border-r border-black/5"><span className="doc-badge">ค่าใช้จ่าย (Expenses)</span></td>
+                    <td className="px-3 py-2 text-ink-500">ต้นทุนสินค้าและวัตถุดิบนำเข้า</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <label className="block text-xs font-medium text-ink-700">เลือกไฟล์สำหรับนำเข้า</label>
+            <input type="file" accept=".csv, .xlsx, .xls" className="glass-input w-full" onChange={handleFileSelect} />
+          </div>
 
           {importResult && (
-            <div className="space-y-4">
-              <p className="text-ink-700 text-sm">
-                พบรหัสที่มีอยู่แล้ว {importResult.existingCount} รายการ (ข้าม) ·
-                รหัสใหม่ข้อมูลครบ {importResult.newComplete.length} รายการ ·
-                รหัสใหม่ข้อมูลไม่ครบ {importResult.newIncomplete.length} รายการ
+            <div className="space-y-4 pt-2">
+              <p className="text-ink-700 text-sm bg-white/70 p-3 rounded-xl border border-black/10">
+                พบรหัสที่มีอยู่แล้ว <strong>{importResult.existingCount}</strong> รายการ (ข้าม) ·
+                รหัสใหม่ข้อมูลครบ <strong>{importResult.newComplete.length}</strong> รายการ ·
+                รหัสใหม่ข้อมูลไม่ครบ <strong className="text-rose">{importResult.newIncomplete.length}</strong> รายการ
               </p>
 
               {incompleteRows.length > 0 && (
@@ -221,7 +331,7 @@ export default function AccountsManagementPage() {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button onClick={() => { setImportResult(null); setIncompleteRows([]) }} className="btn-ghost text-sm">ยกเลิก</button>
                 <button onClick={handleConfirmImport} disabled={importSubmitting || (importResult.newComplete.length === 0 && incompleteRows.length === 0)}
                         className="btn-primary text-sm disabled:opacity-60">
@@ -291,52 +401,110 @@ export default function AccountsManagementPage() {
         </div>
       </form>
 
-      <div className="glass p-0 overflow-hidden">
-        {loading && <p className="text-ink-500 text-sm p-6">กำลังโหลด...</p>}
-        {!loading && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-black/10 text-left text-ink-500 text-xs uppercase tracking-wider">
-                <th className="px-4 py-3">รหัส</th>
-                <th className="px-4 py-3">ชื่อบัญชี</th>
-                <th className="px-4 py-3">หมวดหมู่</th>
-                <th className="px-4 py-3">กลุ่ม</th>
-                <th className="px-4 py-3">รายละเอียด</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((a) => (
-                <tr key={a.id} className="border-b border-black/5 last:border-0">
-                  <td className="px-4 py-3 text-ink-900 whitespace-nowrap">{a.code}</td>
-                  <td className="px-4 py-3 text-ink-700">{a.name}</td>
-                  <td className="px-4 py-3"><span className="doc-badge">{a.category}</span></td>
-                  <td className="px-4 py-3 text-ink-500">
-                    {(!a.groups || a.groups.length === 0) ? (
-                      <span className="text-ink-400">ไม่มีกลุ่ม</span>
-                    ) : (
-                      <div className="space-y-0.5">
-                        {a.groups.map((g) => (
-                          <div key={g.groupId} className="text-xs">
-                            {g.name} {g.fraction < 1 ? `(${Math.round(g.fraction * 1000) / 10}%)` : ''}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-ink-500 max-w-xs truncate" title={a.description}>{a.description}</td>
-                  <td className="px-4 py-3 text-right space-x-3 whitespace-nowrap">
-                    <button onClick={() => startEdit(a)} className="text-ocean text-xs hover:underline">แก้ไข</button>
-                    <button onClick={() => handleDelete(a.id)} className="text-rose text-xs hover:underline">ลบ</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="space-y-4">
+        {/* Header & Quick Action Buttons */}
+        <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+          <p className="text-ink-600 text-xs font-medium">
+            ผังรหัสบัญชีทั้งหมด ({accounts.length} รายการ — แยกตามหมวดหมู่)
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={expandAll}
+              className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 border border-black/10 hover:bg-black/5 cursor-pointer"
+            >
+              <span>📂</span> ขยายทั้งหมด
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 border border-black/10 hover:bg-black/5 cursor-pointer"
+            >
+              <span>📁</span> ย่อทั้งหมด
+            </button>
+          </div>
+        </div>
+
+        {loading && (
+          <div className="glass p-6 text-center text-ink-500 text-sm">
+            กำลังโหลด...
+          </div>
         )}
+
         {!loading && accounts.length === 0 && (
-          <p className="text-ink-400 text-sm text-center py-10">ไม่พบรหัสบัญชี</p>
+          <div className="glass p-10 text-center text-ink-400 text-sm">
+            ไม่พบรหัสบัญชี
+          </div>
         )}
+
+        {!loading && groupedAccounts.map((grp) => {
+          const isCollapsed = Boolean(collapsedGroups[grp.key])
+          return (
+            <div key={grp.key} className="glass p-0 overflow-hidden transition-all border border-black/10 rounded-2xl shadow-sm">
+              {/* Accordion Group Header */}
+              <div
+                onClick={() => toggleGroup(grp.key)}
+                className="px-5 py-3.5 bg-slate-50/80 hover:bg-slate-100/90 flex items-center justify-between cursor-pointer border-b border-black/10 transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-ink-400 text-xs font-mono">{isCollapsed ? '▶' : '▼'}</span>
+                  <h3 className="font-medium text-ink-900 text-sm">{grp.title}</h3>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${grp.badgeColor}`}>
+                    {grp.items.length} รายการ
+                  </span>
+                </div>
+                <span className="text-xs text-ocean font-medium hover:underline">
+                  {isCollapsed ? 'ขยายดูรายการ' : 'ย่อเก็บ'}
+                </span>
+              </div>
+
+              {/* Accordion Content Table */}
+              {!isCollapsed && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-black/10 text-left text-ink-500 text-xs uppercase tracking-wider bg-white/50">
+                        <th className="px-4 py-2.5 w-28">รหัส</th>
+                        <th className="px-4 py-2.5">ชื่อบัญชี</th>
+                        <th className="px-4 py-2.5">หมวดหมู่</th>
+                        <th className="px-4 py-2.5">กลุ่มผูกโยง</th>
+                        <th className="px-4 py-2.5">รายละเอียด</th>
+                        <th className="px-4 py-2.5 w-24"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-black/5 bg-white/80">
+                      {grp.items.map((a) => (
+                        <tr key={a.id} className="hover:bg-black/[0.015] transition-colors">
+                          <td className="px-4 py-2.5 font-mono text-xs font-bold text-ocean whitespace-nowrap">{a.code}</td>
+                          <td className="px-4 py-2.5 text-ink-900 text-xs font-medium">{a.name}</td>
+                          <td className="px-4 py-2.5"><span className="doc-badge text-[11px]">{a.category}</span></td>
+                          <td className="px-4 py-2.5 text-ink-500 text-xs">
+                            {(!a.groups || a.groups.length === 0) ? (
+                              <span className="text-ink-400 italic">ไม่มีกลุ่ม</span>
+                            ) : (
+                              <div className="space-y-0.5">
+                                {a.groups.map((g) => (
+                                  <div key={g.groupId} className="text-xs">
+                                    {g.name} {g.fraction < 1 ? `(${Math.round(g.fraction * 1000) / 10}%)` : ''}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-ink-500 text-xs max-w-xs truncate" title={a.description}>{a.description}</td>
+                          <td className="px-4 py-2.5 text-right space-x-2 whitespace-nowrap">
+                            <button onClick={() => startEdit(a)} className="text-ocean text-xs hover:underline font-medium">แก้ไข</button>
+                            <button onClick={() => handleDelete(a.id)} className="text-rose text-xs hover:underline font-medium">ลบ</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

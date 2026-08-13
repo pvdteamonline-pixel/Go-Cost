@@ -58,7 +58,13 @@ begin
     v_group_monthly := array_fill(0::numeric, array[12]);
     v_group_total := 0;
 
-    for a in select id, code, name from accounts where group_id = g.id order by code loop
+    for a in
+      select distinct ac.id, ac.code, ac.name
+      from accounts ac
+      left join account_group_splits s on s.account_id = ac.id
+      where ac.group_id = g.id or s.group_id = g.id
+      order by ac.code
+    loop
       v_acct_monthly := array_fill(0::numeric, array[12]);
       v_acct_total := 0;
       for m in 1..12 loop
@@ -95,7 +101,13 @@ begin
   end loop;
 
   -- รหัสที่ยังไม่มีกลุ่ม
-  for a in select id, code, name from accounts where group_id is null order by code loop
+  for a in
+    select ac.id, ac.code, ac.name
+    from accounts ac
+    where ac.group_id is null
+      and not exists (select 1 from account_group_splits s where s.account_id = ac.id)
+    order by ac.code
+  loop
     v_acct_monthly := array_fill(0::numeric, array[12]);
     v_acct_total := 0;
     for m in 1..12 loop

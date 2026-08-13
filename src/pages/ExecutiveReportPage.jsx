@@ -1,35 +1,58 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import ExportModal from '../components/ExportModal'
+import { MONTH_SHORT, buildExecutivePivotData } from '../lib/executiveReportPivot'
 
 function formatBaht(n) {
-  if (n === null || n === undefined) return '-'
+  if (n === null || n === undefined || isNaN(n)) return '-'
+  if (n === 0) return '-'
   return n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-const MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+function formatAvg(n) {
+  if (n === null || n === undefined || isNaN(n)) return '-'
+  return Math.round(n).toLocaleString('th-TH')
+}
 
-function buildExcelSheet(data, year) {
-  const header = ['รหัสบัญชี', 'ชื่อบัญชี', ...MONTH_SHORT, 'รวม']
-  const rows = [header, ['', 'รายได้รวม', ...data.revenueMonthly, data.revenueTotal]]
-  for (const g of data.groups) {
-    rows.push([g.code, g.name, ...g.pctOfRevenueMonthly.map((p) => (p !== null ? `${p}%` : '')), g.pctOfRevenueTotal !== null ? `${g.pctOfRevenueTotal}%` : ''])
-    for (const a of g.accounts) rows.push([a.code, a.name, ...a.monthly, a.total])
-    rows.push(['', `รวม ${g.name}`, ...g.monthly, g.total])
+function buildExcelSheet(pivotData, year) {
+  const header = ['รหัสบัญชี', 'ชื่อบัญชี', ...MONTH_SHORT, 'รวม', 'เฉลี่ย/เดือน', '% ของรวมรายได้']
+  const rows = [header]
+
+  if (pivotData && pivotData.rows) {
+    for (const r of pivotData.rows) {
+      if (r.type === 'section') {
+        rows.push(['', `=== ${r.title} ===`, ...Array(15).fill('')])
+      } else if (r.type === 'section-header') {
+        rows.push(['', `--- ${r.title} ---`, ...Array(15).fill('')])
+      } else if (r.type === 'category-header') {
+        rows.push(['', r.title, ...Array(15).fill('')])
+      } else if (r.type === 'pct-row') {
+        rows.push(['', r.name, ...Array(14).fill(''), r.pctValue || ''])
+      } else if (r.type === 'diff-row') {
+        rows.push(['', r.name, ...Array(14).fill(''), r.value || '-'])
+      } else {
+        rows.push([
+          r.code || '',
+          r.name || '',
+          ...(r.monthly || Array(12).fill(0)).map((v) => (v !== 0 ? v : '')),
+          r.total !== undefined ? r.total : '',
+          r.showAvg ? Math.round(r.avgPerMonth || 0) : '',
+          r.pctOfRevenue !== null && r.pctOfRevenue !== undefined ? `${r.pctOfRevenue}%` : '',
+        ])
+      }
+    }
   }
-  if (data.ungroupedAccounts.length > 0) {
-    rows.push(['', 'รหัสบัญชีที่ยังไม่มีกลุ่ม'])
-    for (const a of data.ungroupedAccounts) rows.push([a.code, a.name, ...a.monthly, a.total])
-  }
-  return [{ name: `รายงานผู้บริหาร ${year}`, rows }]
+
+  return [{ name: `ประมาณการกำไรขาดทุน ${year}`, rows }]
 }
 
 export default function ExecutiveReportPage({ onNavigate }) {
   const { currentUser } = useAuth()
   const [year, setYear] = useState(new Date().getFullYear())
-  const [data, setData] = useState(null)
+  const [month, setMonth] = useState('') // '' = ทั้งปี, '1'-'12' = เฉพาะเดือน
+  const [rawData, setRawData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -39,15 +62,23 @@ export default function ExecutiveReportPage({ onNavigate }) {
     setLoading(true)
     setError('')
     const { data: res, error: err } = await supabase.rpc('get_executive_monthly_report', {
-      p_actor_id: currentUser?.id ?? null, p_year: year,
+      p_actor_id: currentUser?.id ?? null,
+      p_year: year,
     })
     setLoading(false)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
     if (!res.success) return setError(res.message)
-    setData(res)
+    setRawData(res)
   }, [currentUser, year])
 
-  useEffect(() => { if (canUse) load() }, [canUse, load])
+  useEffect(() => {
+    if (canUse) load()
+  }, [canUse, load])
+
+  const pivotData = useMemo(() => {
+    if (!rawData) return null
+    return buildExecutivePivotData(rawData, year, month)
+  }, [rawData, year, month])
 
   if (!canUse) {
     return (
@@ -63,219 +94,336 @@ export default function ExecutiveReportPage({ onNavigate }) {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">รายงานผู้บริหาร</h1>
-          <p className="text-ink-600 text-sm mt-1">ประมาณการกำไร(ขาดทุน) แยกตามกลุ่ม → รหัสบัญชี รายเดือน (ตาม template งบบริหาร)</p>
+          <p className="text-ink-600 text-sm mt-1">
+            ประมาณการกำไร(ขาดทุน)เบื้องต้น สรุปรายรับ-รายจ่าย (ตาราง Pivot ตาม Template Excel)
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          {data && <ExportModal fileNameBase={`รายงานผู้บริหาร_${year}`} excelSheets={buildExcelSheet(data, year)} pdfPreview={<ExecReportPdfPreview data={data} year={year} />} />}
+          {pivotData && (
+            <ExportModal
+              fileNameBase={`ประมาณการกำไร(ขาดทุน)_ผู้บริหาร_${year}`}
+              excelSheets={buildExcelSheet(pivotData, year)}
+              pdfPreview={<ExecReportPdfPreview pivotData={pivotData} year={year} month={month} />}
+            />
+          )}
+          <select className="glass-input text-sm w-36" value={month} onChange={(e) => setMonth(e.target.value)}>
+            <option value="">ทุกเดือน (ทั้งปี)</option>
+            {MONTH_SHORT.map((m, idx) => (
+              <option key={idx + 1} value={idx + 1}>
+                {m}
+              </option>
+            ))}
+          </select>
           <select className="glass-input text-sm w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => <option key={y} value={y}>{y}</option>)}
+            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
           </select>
         </div>
       </div>
 
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
-      {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
+      {loading && <p className="text-ink-500 text-sm">กำลังโหลดข้อมูลรายงาน...</p>}
 
-      {!loading && data && (() => {
-        // คำนวณ grand total ของทุกกลุ่ม
-        const groupGrandMonthly = Array(12).fill(0)
-        data.groups.forEach((g) => (g.monthly ?? []).forEach((v, i) => { groupGrandMonthly[i] += Number(v ?? 0) }))
-        const groupGrandTotal = data.groups.reduce((s, g) => s + Number(g.total ?? 0), 0)
-
-        // ungrouped total
-        const ungroupedTotal = (data.ungroupedAccounts ?? []).reduce((s, a) => s + Number(a.total ?? 0), 0)
-        const ungroupedMonthly = Array(12).fill(0)
-        ;(data.ungroupedAccounts ?? []).forEach((a) => (a.monthly ?? []).forEach((v, i) => { ungroupedMonthly[i] += Number(v ?? 0) }))
-
-        return (
-          <>
-            {/* Warning Banner สำหรับ ungrouped */}
-            {(data.ungroupedAccounts ?? []).length > 0 && (
-              <div className="bg-amber-50 border border-amber-300/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-start gap-2">
-                  <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
-                  <div>
-                    <p className="text-amber-800 font-medium text-sm">
-                      มีรหัสบัญชีที่ยังไม่ได้จัดกลุ่ม {(data.ungroupedAccounts ?? []).length} รหัส — ยอดรวม {formatBaht(ungroupedTotal)} บาท
-                    </p>
-                    <p className="text-amber-600 text-xs mt-0.5">
-                      รหัสเหล่านี้ถูกแยกออกจากรายงาน กรุณาจัดกลุ่มก่อนเพื่อให้ยอดรวมถูกต้องสมบูรณ์
-                    </p>
-                  </div>
+      {!loading && pivotData && (
+        <>
+          {/* Warning Banner สำหรับรหัสบัญชีที่ไม่ได้อยู่ใน Template */}
+          {pivotData.unmatchedAccounts && pivotData.unmatchedAccounts.length > 0 && (
+            <div className="bg-amber-50 border border-amber-300/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-2">
+                <span className="text-amber-500 text-lg mt-0.5">⚠️</span>
+                <div>
+                  <p className="text-amber-800 font-medium text-sm">
+                    พบรหัสบัญชีเพิ่มเติมในระบบที่ไม่อยู่ใน Template Standard จำนวน {pivotData.unmatchedAccounts.length} รหัส
+                  </p>
+                  <p className="text-amber-600 text-xs mt-0.5">
+                    รหัสเหล่านี้ถูกแสดงไว้ในส่วน "รหัสบัญชีอื่นๆ" ท้ายตาราง
+                  </p>
                 </div>
-                {onNavigate && (
-                  <button
-                    onClick={() => onNavigate('account-groups')}
-                    className="btn-primary text-xs px-3 py-1.5 shrink-0"
-                  >
-                    📂 ไปจัดกลุ่มรหัสบัญชี
-                  </button>
-                )}
               </div>
-            )}
+              {onNavigate && (
+                <button onClick={() => onNavigate('account-groups')} className="btn-primary text-xs px-3 py-1.5 shrink-0">
+                  📂 ไปผังบัญชี / จัดกลุ่ม
+                </button>
+              )}
+            </div>
+          )}
 
-            <div className="glass p-4 overflow-x-auto">
-              <table className="w-full text-xs border-collapse min-w-[1400px]">
-                <thead>
-                  <tr className="border-b-2 border-black/15 text-ink-500">
-                    <th className="text-left py-2 pr-2 w-24">รหัสบัญชี</th>
-                    <th className="text-left py-2 pr-2 w-52">ชื่อบัญชี</th>
-                    {MONTH_SHORT.map((m) => <th key={m} className="text-right py-2 px-2 w-24">{m}</th>)}
-                    <th className="text-right py-2 pl-2 w-28">รวม</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* ─── รายได้รวม ─── */}
-                  <tr className="bg-sage-pale/40 font-medium">
-                    <td className="py-1.5" colSpan={2}>รายได้รวม</td>
-                    {data.revenueMonthly.map((v, i) => (
-                      <td key={i} className="text-right py-1.5 px-2 text-sage tabular-nums">{formatBaht(v)}</td>
-                    ))}
-                    <td className="text-right py-1.5 pl-2 text-sage tabular-nums">{formatBaht(data.revenueTotal)}</td>
-                  </tr>
+          {/* Pivot Table Container */}
+          <div className="glass p-4 overflow-x-auto">
+            <div className="flex items-center justify-between mb-3 text-xs text-ink-500 flex-wrap gap-2">
+              <div>
+                <span>ฐานข้อมูลมีข้อมูลจริง </span>
+                <span className="font-semibold text-ocean">{pivotData.activeMonthsCount} เดือน</span>
+                <span> (ใช้คำนวณคอลัมน์ เฉลี่ย/เดือน)</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-sage inline-block"></span> รายได้</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span> ค่าใช้จ่าย</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-600 inline-block"></span> กำไรสุทธิ</span>
+              </div>
+            </div>
 
-                  {/* ─── กลุ่มรหัสบัญชี ─── */}
-                  {data.groups.map((g, gIdx) => (
-                    <React.Fragment key={g.groupId}>
-                      <tr className="bg-ink-100/60">
-                        <td colSpan={2} className="py-2 px-1">
-                          <span className="text-[10px] text-ink-400 mr-1">กลุ่ม {gIdx + 1}.</span>
-                          <span className="doc-badge mr-2">{g.code}</span>
-                          <span className="text-ink-900 font-medium">{g.name}</span>
-                          {g.pctOfRevenueTotal !== null && (
-                            <span className="text-ink-400 ml-2">({g.pctOfRevenueTotal}% ของรายได้)</span>
-                          )}
-                        </td>
-                        {g.pctOfRevenueMonthly.map((p, i) => (
-                          <td key={i} className="text-right py-2 px-2 text-ink-400 tabular-nums">{p !== null ? `${p}%` : ''}</td>
-                        ))}
-                        <td></td>
-                      </tr>
-                      {g.accounts.map((a) => (
-                        <tr key={a.code} className="border-b border-black/5 hover:bg-black/[0.015]">
-                          <td className="py-1 pr-2 pl-4 text-ocean font-mono">{a.code}</td>
-                          <td className="py-1 pr-2 text-ink-700">{a.name}</td>
-                          {a.monthly.map((v, i) => (
-                            <td key={i} className="text-right py-1 px-2 text-ink-800 tabular-nums">{v !== 0 ? formatBaht(v) : ''}</td>
-                          ))}
-                          <td className="text-right py-1 pl-2 text-ink-900 font-medium tabular-nums">{formatBaht(a.total)}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-white/40 border-b border-black/10">
-                        <td colSpan={2} className="py-1 pl-4 text-ink-400 italic">รวม {g.name}</td>
-                        {g.monthly.map((v, i) => (
-                          <td key={i} className="text-right py-1 px-2 text-ink-600 font-medium tabular-nums">{formatBaht(v)}</td>
-                        ))}
-                        <td className="text-right py-1 pl-2 text-ink-600 font-medium tabular-nums">{formatBaht(g.total)}</td>
-                      </tr>
-                    </React.Fragment>
+            <table className="w-full text-xs border-collapse min-w-[1500px]">
+              <thead>
+                <tr className="border-b-2 border-ink-900/20 bg-ink-100/80 text-ink-700 font-bold">
+                  <th className="text-left py-2.5 px-2 w-24">รหัสบัญชี</th>
+                  <th className="text-left py-2.5 px-2 w-64">ชื่อบัญชี</th>
+                  {MONTH_SHORT.map((m) => (
+                    <th key={m} className="text-right py-2.5 px-1.5 w-20">
+                      {m}
+                    </th>
                   ))}
-
-                  {/* ─── รวมทุกกลุ่ม (Grand Total) ─── */}
-                  {data.groups.length > 0 && (
-                    <tr className="border-t-2 border-ocean/30 bg-ocean/5">
-                      <td colSpan={2} className="py-2 px-2 font-bold text-ocean text-xs">
-                        รวมทั้งหมด {data.groups.length} กลุ่ม (ยอดรวมรายจ่าย)
-                      </td>
-                      {groupGrandMonthly.map((v, i) => (
-                        <td key={i} className="text-right py-2 px-2 font-bold text-ocean tabular-nums">{v !== 0 ? formatBaht(v) : ''}</td>
-                      ))}
-                      <td className="text-right py-2 pl-2 font-bold text-ocean tabular-nums">{formatBaht(groupGrandTotal)}</td>
-                    </tr>
-                  )}
-
-                  {/* ─── กำไร(ขาดทุน)สุทธิ ─── */}
-                  {data.groups.length > 0 && (() => {
-                    const netMonthly = (data.revenueMonthly ?? Array(12).fill(0)).map((r, i) => Number(r) - groupGrandMonthly[i])
-                    const netTotal = Number(data.revenueTotal ?? 0) - groupGrandTotal
+                  <th className="text-right py-2.5 px-2 w-28 bg-ink-200/50">รวม</th>
+                  <th className="text-right py-2.5 px-2 w-28 bg-ocean/10 text-ocean">เฉลี่ย/เดือน</th>
+                  <th className="text-right py-2.5 px-2 w-24 bg-ink-200/30">% ของรวมรายได้</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pivotData.rows.map((r, idx) => {
+                  if (r.type === 'section') {
                     return (
-                      <tr className={`border-t-2 ${netTotal >= 0 ? 'border-sage/40 bg-sage-pale/30' : 'border-rose/40 bg-rose-pale/30'}`}>
-                        <td colSpan={2} className={`py-2 px-2 font-bold text-sm ${netTotal >= 0 ? 'text-sage' : 'text-rose'}`}>
-                          {netTotal >= 0 ? '▲ กำไร(ขาดทุน)สุทธิประมาณการ' : '▼ กำไร(ขาดทุน)สุทธิประมาณการ'}
-                        </td>
-                        {netMonthly.map((v, i) => (
-                          <td key={i} className={`text-right py-2 px-2 font-bold tabular-nums ${v >= 0 ? 'text-sage' : 'text-rose'}`}>
-                            {v !== 0 ? formatBaht(v) : ''}
-                          </td>
-                        ))}
-                        <td className={`text-right py-2 pl-2 font-bold tabular-nums ${netTotal >= 0 ? 'text-sage' : 'text-rose'}`}>
-                          {formatBaht(netTotal)}
+                      <tr key={idx} className="bg-ocean/10 border-y border-ocean/30">
+                        <td colSpan={17} className="py-2 px-3 font-bold text-ocean text-sm">
+                          {r.title}
                         </td>
                       </tr>
                     )
-                  })()}
-                </tbody>
-              </table>
-              <p className="text-ink-400 text-xs mt-3">
-                % คำนวณจากยอดของแต่ละกลุ่ม เทียบกับ "รายได้รวม" —
-                รหัสที่ยังไม่ได้จัดกลุ่ม <span className="text-amber-600 font-medium">จะไม่ถูกรวม</span> ในยอดนี้
-                {(data.ungroupedAccounts ?? []).length > 0 && ` (${(data.ungroupedAccounts ?? []).length} รหัส, ยอด ${formatBaht(ungroupedTotal)} บาท)`}
-              </p>
-            </div>
-          </>
-        )
-      })()}
+                  }
+
+                  if (r.type === 'section-header') {
+                    return (
+                      <tr key={idx} className="bg-rose-50/90 border-y border-rose-200">
+                        <td colSpan={17} className="py-2 px-3 font-bold text-rose-900 text-xs">
+                          {r.title}
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  if (r.type === 'category-header') {
+                    return (
+                      <tr key={idx} className="bg-ink-100/70 border-t border-black/10">
+                        <td colSpan={2} className="py-1.5 px-2 font-bold text-ink-900">
+                          {r.title}
+                        </td>
+                        <td colSpan={15}></td>
+                      </tr>
+                    )
+                  }
+
+                  if (r.type === 'pct-row') {
+                    return (
+                      <tr key={idx} className="border-b border-black/5 text-[11px] text-ink-400 italic">
+                        <td></td>
+                        <td className="py-1 px-2">{r.name}</td>
+                        {Array(12).fill(0).map((_, i) => (
+                          <td key={i}></td>
+                        ))}
+                        <td></td>
+                        <td></td>
+                        <td className="text-right py-1 px-2 font-medium text-ink-500 tabular-nums">{r.pctValue || ''}</td>
+                      </tr>
+                    )
+                  }
+
+                  if (r.type === 'diff-row') {
+                    return (
+                      <tr key={idx} className="border-b border-black/10 bg-gray-50/80 text-ink-500">
+                        <td></td>
+                        <td className="py-1.5 px-2 font-medium">{r.name}</td>
+                        {Array(12).fill(0).map((_, i) => (
+                          <td key={i}></td>
+                        ))}
+                        <td></td>
+                        <td></td>
+                        <td className="text-right py-1.5 px-2 font-medium text-ink-400">{r.value || '-'}</td>
+                      </tr>
+                    )
+                  }
+
+                  // Standard Data & Formula Rows
+                  const isFormula = r.type === 'formula'
+                  const isSubtotal = r.type === 'subtotal'
+                  const isCogs = r.type === 'cogs-row'
+                  const isTotalRev = r.id === 'total-revenue'
+                  const isGrossProf = r.id === 'gross-profit'
+                  const isTotalExp = r.id === 'total-exp'
+                  const isNetProf = r.id === 'net-profit'
+
+                  let rowStyle = 'border-b border-black/5 hover:bg-black/[0.015]'
+                  if (isTotalRev) rowStyle = 'bg-sage-pale/60 font-bold border-y-2 border-sage/40 text-sage-dark'
+                  else if (isGrossProf) rowStyle = 'bg-emerald-50/90 font-bold border-y-2 border-emerald-300 text-emerald-900'
+                  else if (isTotalExp) rowStyle = 'bg-amber-50/90 font-bold border-y-2 border-amber-300 text-amber-900'
+                  else if (isNetProf)
+                    rowStyle = `font-bold text-sm border-y-2 ${
+                      r.total >= 0 ? 'bg-blue-50/90 text-blue-900 border-blue-400' : 'bg-rose-50/90 text-rose-900 border-rose-400'
+                    }`
+                  else if (isSubtotal) rowStyle = 'bg-white/70 font-semibold border-b border-black/15 text-ink-900'
+                  else if (isCogs) rowStyle = 'bg-amber-50/40 font-semibold border-b border-black/10'
+                  else if (isFormula) rowStyle = 'bg-ink-50/60 font-semibold text-ink-800'
+
+                  return (
+                    <tr key={idx} className={rowStyle}>
+                      <td className="py-1 px-2 font-mono text-ocean">{r.code || ''}</td>
+                      <td className={`py-1 px-2 ${r.deduct ? 'pl-4 text-rose-700' : r.add ? 'pl-4 text-emerald-700' : ''}`}>
+                        {r.name}
+                      </td>
+                      {(r.monthly || Array(12).fill(0)).map((v, mIdx) => (
+                        <td key={mIdx} className="text-right py-1 px-1.5 tabular-nums text-ink-800">
+                          {formatBaht(v)}
+                        </td>
+                      ))}
+                      <td className="text-right py-1 px-2 font-bold tabular-nums bg-ink-100/30 text-ink-900">
+                        {formatBaht(r.total)}
+                      </td>
+                      <td className="text-right py-1 px-2 font-semibold tabular-nums bg-ocean/5 text-ocean">
+                        {r.showAvg || isSubtotal || isFormula ? formatAvg(r.avgPerMonth) : '-'}
+                      </td>
+                      <td className="text-right py-1 px-2 tabular-nums text-ink-600 font-medium">
+                        {r.pctOfRevenue !== null && r.pctOfRevenue !== undefined ? `${r.pctOfRevenue}%` : ''}
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {/* Render Unmatched Accounts if any */}
+                {pivotData.unmatchedAccounts && pivotData.unmatchedAccounts.length > 0 && (
+                  <>
+                    <tr className="bg-amber-100/80 border-t-2 border-amber-400">
+                      <td colSpan={2} className="py-2 px-3 font-bold text-amber-900 text-xs">
+                        ⚠️ รหัสบัญชีอื่นๆ (ไม่ได้ระบุใน Template Standard)
+                      </td>
+                      <td colSpan={15}></td>
+                    </tr>
+                    {pivotData.unmatchedAccounts.map((a) => (
+                      <tr key={a.code} className="border-b border-black/5 bg-amber-50/30">
+                        <td className="py-1 px-2 font-mono text-ocean">{a.code}</td>
+                        <td className="py-1 px-2 text-ink-700">{a.name}</td>
+                        {a.monthly.map((v, mIdx) => (
+                          <td key={mIdx} className="text-right py-1 px-1.5 tabular-nums text-ink-800">
+                            {formatBaht(v)}
+                          </td>
+                        ))}
+                        <td className="text-right py-1 px-2 font-bold tabular-nums">{formatBaht(a.total)}</td>
+                        <td className="text-right py-1 px-2 font-semibold tabular-nums text-ocean">
+                          {formatAvg(a.total / pivotData.activeMonthsCount)}
+                        </td>
+                        <td className="text-right py-1 px-2"></td>
+                      </tr>
+                    ))}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
-// เวอร์ชันสำหรับพิมพ์/PDF — ตัวหนังสือดำบนพื้นขาวล้วน ไม่มี glass effect (พิมพ์ออกมาแล้วอ่านง่าย)
-function ExecReportPdfPreview({ data, year }) {
+// Printable PDF Preview Component (Black and White layout for printing)
+function ExecReportPdfPreview({ pivotData, year, month }) {
+  if (!pivotData) return null
+
   return (
-    <div style={{ color: '#1d1d1f' }}>
-      <h1 style={{ fontSize: 20, fontWeight: 'bold', textAlign: 'center' }}>รายงานผู้บริหาร ปี {year}</h1>
-      <p style={{ fontSize: 11, textAlign: 'center', color: '#6e6e73', marginBottom: 16 }}>
-        ประมาณการกำไร(ขาดทุน) แยกตามกลุ่ม → รหัสบัญชี รายเดือน — พิมพ์เมื่อ {new Date().toLocaleDateString('th-TH')}
+    <div style={{ color: '#1d1d1f', fontFamily: 'sans-serif' }}>
+      <h1 style={{ fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 2 }}>
+        ประมาณการกำไร(ขาดทุน)เบื้องต้น ปี {year} {month ? `(เดือน ${MONTH_SHORT[Number(month) - 1]})` : ''}
+      </h1>
+      <p style={{ fontSize: 10, textAlign: 'center', color: '#6e6e73', marginBottom: 12 }}>
+        ตารางสรุปรายรับ-รายจ่าย บริษัท — ข้อมูลพิมพ์เมื่อ {new Date().toLocaleDateString('th-TH')}
       </p>
-      <table style={{ width: '100%', fontSize: 9, borderCollapse: 'collapse' }}>
+
+      <table style={{ width: '100%', fontSize: 8, borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ borderBottom: '2px solid #1d1d1f' }}>
-            <th style={{ textAlign: 'left', padding: 4 }}>รหัส</th>
-            <th style={{ textAlign: 'left', padding: 4 }}>ชื่อบัญชี</th>
-            {MONTH_SHORT.map((m) => <th key={m} style={{ textAlign: 'right', padding: 4 }}>{m}</th>)}
-            <th style={{ textAlign: 'right', padding: 4 }}>รวม</th>
+          <tr style={{ borderBottom: '2px solid #1d1d1f', backgroundColor: '#f2f2f7' }}>
+            <th style={{ textAlign: 'left', padding: '4px 2px' }}>รหัส</th>
+            <th style={{ textAlign: 'left', padding: '4px 2px', width: '22%' }}>ชื่อบัญชี</th>
+            {MONTH_SHORT.map((m) => (
+              <th key={m} style={{ textAlign: 'right', padding: '4px 2px' }}>
+                {m}
+              </th>
+            ))}
+            <th style={{ textAlign: 'right', padding: '4px 2px', fontWeight: 'bold' }}>รวม</th>
+            <th style={{ textAlign: 'right', padding: '4px 2px', fontWeight: 'bold' }}>เฉลี่ย/เดือน</th>
+            <th style={{ textAlign: 'right', padding: '4px 2px' }}>% ของรายได้</th>
           </tr>
         </thead>
         <tbody>
-          <tr style={{ backgroundColor: '#eaf7ef', fontWeight: 'bold' }}>
-            <td style={{ padding: 4 }} colSpan={2}>รายได้รวม</td>
-            {data.revenueMonthly.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: 4 }}>{formatBaht(v)}</td>)}
-            <td style={{ textAlign: 'right', padding: 4 }}>{formatBaht(data.revenueTotal)}</td>
-          </tr>
-          {data.groups.map((g) => (
-            <React.Fragment key={g.groupId}>
-              <tr style={{ backgroundColor: '#f5f5f7' }}>
-                <td style={{ padding: 4, fontWeight: 'bold' }} colSpan={2}>{g.code} {g.name} {g.pctOfRevenueTotal !== null ? `(${g.pctOfRevenueTotal}%)` : ''}</td>
-                <td colSpan={13}></td>
-              </tr>
-              {g.accounts.map((a) => (
-                <tr key={a.code} style={{ borderBottom: '1px solid #e8e8ed' }}>
-                  <td style={{ padding: '2px 4px 2px 12px' }}>{a.code}</td>
-                  <td style={{ padding: '2px 4px' }}>{a.name}</td>
-                  {a.monthly.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '2px 4px' }}>{v !== 0 ? formatBaht(v) : ''}</td>)}
-                  <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{formatBaht(a.total)}</td>
+          {pivotData.rows.map((r, idx) => {
+            if (r.type === 'section' || r.type === 'section-header') {
+              return (
+                <tr key={idx} style={{ backgroundColor: '#e5e5ea', fontWeight: 'bold' }}>
+                  <td colSpan={17} style={{ padding: 4 }}>
+                    {r.title}
+                  </td>
                 </tr>
-              ))}
-              <tr style={{ borderBottom: '1px solid #d2d2d7' }}>
-                <td style={{ padding: '2px 4px 2px 12px', fontStyle: 'italic', color: '#6e6e73' }} colSpan={2}>รวม {g.name}</td>
-                {g.monthly.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '2px 4px' }}>{formatBaht(v)}</td>)}
-                <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{formatBaht(g.total)}</td>
-              </tr>
-            </React.Fragment>
-          ))}
-          {data.ungroupedAccounts.length > 0 && (
-            <>
-              <tr><td style={{ padding: 4, fontWeight: 'bold' }} colSpan={15}>รหัสบัญชีที่ยังไม่มีกลุ่ม</td></tr>
-              {data.ungroupedAccounts.map((a) => (
-                <tr key={a.code}>
-                  <td style={{ padding: '2px 4px 2px 12px' }}>{a.code}</td>
-                  <td style={{ padding: '2px 4px' }}>{a.name}</td>
-                  {a.monthly.map((v, i) => <td key={i} style={{ textAlign: 'right', padding: '2px 4px' }}>{v !== 0 ? formatBaht(v) : ''}</td>)}
-                  <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{formatBaht(a.total)}</td>
+              )
+            }
+            if (r.type === 'category-header') {
+              return (
+                <tr key={idx} style={{ backgroundColor: '#f2f2f7', fontWeight: 'bold' }}>
+                  <td colSpan={2} style={{ padding: 4 }}>
+                    {r.title}
+                  </td>
+                  <td colSpan={15}></td>
                 </tr>
-              ))}
-            </>
-          )}
+              )
+            }
+            if (r.type === 'pct-row') {
+              return (
+                <tr key={idx} style={{ fontStyle: 'italic', color: '#6e6e73' }}>
+                  <td></td>
+                  <td style={{ padding: '2px 4px' }}>{r.name}</td>
+                  <td colSpan={14}></td>
+                  <td style={{ textAlign: 'right', padding: '2px 4px' }}>{r.pctValue || ''}</td>
+                </tr>
+              )
+            }
+            if (r.type === 'diff-row') {
+              return (
+                <tr key={idx} style={{ borderBottom: '1px solid #d2d2d7' }}>
+                  <td></td>
+                  <td style={{ padding: '2px 4px' }}>{r.name}</td>
+                  <td colSpan={14}></td>
+                  <td style={{ textAlign: 'right', padding: '2px 4px' }}>{r.value || '-'}</td>
+                </tr>
+              )
+            }
+
+            const isBold = r.isBold || r.type === 'subtotal' || r.type === 'formula'
+            const isHighlight = r.id === 'total-revenue' || r.id === 'gross-profit' || r.id === 'total-exp' || r.id === 'net-profit'
+
+            return (
+              <tr
+                key={idx}
+                style={{
+                  borderBottom: '1px solid #e8e8ed',
+                  fontWeight: isBold ? 'bold' : 'normal',
+                  backgroundColor: isHighlight ? '#f2f2f7' : 'transparent',
+                }}
+              >
+                <td style={{ padding: '2px 4px' }}>{r.code || ''}</td>
+                <td style={{ padding: '2px 4px' }}>{r.name}</td>
+                {(r.monthly || Array(12).fill(0)).map((v, mIdx) => (
+                  <td key={mIdx} style={{ textAlign: 'right', padding: '2px 2px' }}>
+                    {formatBaht(v)}
+                  </td>
+                ))}
+                <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{formatBaht(r.total)}</td>
+                <td style={{ textAlign: 'right', padding: '2px 4px' }}>
+                  {r.showAvg || r.type === 'subtotal' || r.type === 'formula' ? formatAvg(r.avgPerMonth) : '-'}
+                </td>
+                <td style={{ textAlign: 'right', padding: '2px 4px' }}>
+                  {r.pctOfRevenue !== null && r.pctOfRevenue !== undefined ? `${r.pctOfRevenue}%` : ''}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
