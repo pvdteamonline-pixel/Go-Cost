@@ -827,20 +827,27 @@ begin
     v_group_monthly := array_fill(0::numeric, array[12]);
     v_group_total := 0;
 
+    -- ใช้ UNION แทน distinct+left join+or เพื่อป้องกันรหัสซ้ำที่เกิดจาก join + or
     for a in
-      select distinct ac.id, ac.code, ac.name
+      select ac.id, ac.code, ac.name
       from accounts ac
-      left join account_group_splits s on s.account_id = ac.id
-      where ac.group_id = g.id or s.group_id = g.id
-      order by ac.code
+      where ac.group_id = g.id
+      union
+      select ac.id, ac.code, ac.name
+      from accounts ac
+      join account_group_splits s on s.account_id = ac.id
+      where s.group_id = g.id
+      order by code
     loop
       v_acct_monthly := array_fill(0::numeric, array[12]);
       v_acct_total := 0;
       for m in 1..12 loop
+        -- ใช้ l.code = a.code แทน l.account_id = a.id
+        -- เพราะ import file บันทึกยอดด้วย code เป็น key หลัก ตรงกันกับ rawAccounts
         select coalesce(sum(l.amount), 0) into v_amt
         from account_import_lines l
         join account_import_batches b on b.id = l.batch_id
-        where l.account_id = a.id and b.batch_type = 'pl_estimate' and b.year = v_year and l.month = m;
+        where l.code = a.code and b.batch_type = 'pl_estimate' and b.year = v_year and l.month = m;
         v_acct_monthly[m] := v_amt;
         v_acct_total := v_acct_total + v_amt;
         v_group_monthly[m] := v_group_monthly[m] + v_amt;

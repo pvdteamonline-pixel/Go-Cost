@@ -92,25 +92,8 @@ export default function AccountGroupsPage() {
 
     if (!err && data?.success) {
       let mems = data.members || []
-      let avails = data.available || []
-
-      // หาก RPC คืนค่า members ว่างเปล่า ให้ fallback ดึงตรงจากตาราง accounts
-      if (mems.length === 0 && gId) {
-        let directMems = null
-        // ดึงโดยตรงโดยใช้ gId
-        const res1 = await supabase.from('accounts').select('*').eq('group_id', gId)
-        if (res1.data && res1.data.length > 0) {
-          directMems = res1.data
-        } else if (group.code && group.code !== gId) {
-          const res2 = await supabase.from('accounts').select('*').eq('group_id', group.code)
-          if (res2.data && res2.data.length > 0) directMems = res2.data
-        }
-
-        if (directMems && directMems.length > 0) {
-          mems = directMems.map((m) => ({ ...m, fraction: 1.0 }))
-          avails = avails.filter((a) => !directMems.some((dm) => getAId(dm) === getAId(a)))
-        }
-      }
+      // รองรับทั้ง field name เก่า (available) และใหม่ (availableAccounts)
+      let avails = data.availableAccounts || data.available || []
 
       setMembers(mems)
       setAvailable(avails)
@@ -279,7 +262,8 @@ export default function AccountGroupsPage() {
   }
 
   function toggleSelectAll() {
-    const eligible = filteredAvailable.filter((a) => a.allocatedElsewhere < 1)
+    // รองรับทั้ง field name เก่า (allocatedElsewhere) และใหม่ (totalAssigned)
+    const eligible = filteredAvailable.filter((a) => (a.totalAssigned ?? a.allocatedElsewhere ?? 0) < 1)
     const eligibleIds = eligible.map((a) => getAId(a)).filter(Boolean)
     if (eligibleIds.every((id) => selectedToAdd.includes(id))) {
       setSelectedToAdd((prev) => prev.filter((id) => !eligibleIds.includes(id)))
@@ -473,13 +457,13 @@ export default function AccountGroupsPage() {
                       id="select-all-available"
                       className="w-4 h-4 accent-ocean cursor-pointer"
                       checked={
-                        filteredAvailable.filter((a) => a.allocatedElsewhere < 1).length > 0 &&
-                        filteredAvailable.filter((a) => a.allocatedElsewhere < 1).every((a) => selectedToAdd.includes(getAId(a)))
+                        filteredAvailable.filter((a) => (a.totalAssigned ?? a.allocatedElsewhere ?? 0) < 1).length > 0 &&
+                        filteredAvailable.filter((a) => (a.totalAssigned ?? a.allocatedElsewhere ?? 0) < 1).every((a) => selectedToAdd.includes(getAId(a)))
                       }
                       onChange={toggleSelectAll}
                     />
                     <label htmlFor="select-all-available" className="text-xs text-ink-600 cursor-pointer select-none">
-                      เลือกทั้งหมด ({filteredAvailable.filter((a) => a.allocatedElsewhere < 1).length} รหัส)
+                      เลือกทั้งหมด ({filteredAvailable.filter((a) => (a.totalAssigned ?? a.allocatedElsewhere ?? 0) < 1).length} รหัส)
                     </label>
                   </div>
                 )}
@@ -487,7 +471,9 @@ export default function AccountGroupsPage() {
                 <div className="max-h-64 overflow-y-auto space-y-0.5">
                   {filteredAvailable.map((a) => {
                     const aId = getAId(a)
-                    const disabled = a.allocatedElsewhere >= 1
+                    // รองรับทั้ง field name เก่า (allocatedElsewhere) และใหม่ (totalAssigned)
+                    const assignedFraction = a.totalAssigned ?? a.allocatedElsewhere ?? 0
+                    const disabled = assignedFraction >= 1
                     const checked = selectedToAdd.includes(aId)
                     return (
                       <label
@@ -505,8 +491,8 @@ export default function AccountGroupsPage() {
                         />
                         <span className="text-ink-700 flex-1 min-w-0">
                           {a.code} — {a.name}
-                          {a.allocatedElsewhere > 0 && (
-                            <span className="text-ink-400 text-xs ml-2">(จัดสรรไปแล้ว {Math.round(a.allocatedElsewhere * 1000) / 10}% ในกลุ่มอื่น)</span>
+                          {assignedFraction > 0 && (
+                            <span className="text-ink-400 text-xs ml-2">(จัดสรรไปแล้ว {Math.round(assignedFraction * 1000) / 10}% ในกลุ่มอื่น)</span>
                           )}
                         </span>
                       </label>

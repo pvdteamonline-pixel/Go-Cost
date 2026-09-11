@@ -157,31 +157,24 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
     ],
   },
   {
-    type: 'cat-group',
+    type: 'cat-group-dynamic',
     id: 'cat-3-6',
     categoryKey: 'cat_3_6',
     catNum: '3.6',
     title: '3.6 ค่าใช้จ่ายในการบริหาร',
-    items: [
-      { code: '6110-01', name: 'เงินเดือน-แผนก/บริหาร', nameKw: 'บริหาร' },
-      { code: '6110-01', name: 'เงินเดือน-แผนก/บัญชี', nameKw: 'บัญชี' },
-      { code: '6110-01', name: 'เงินเดือน-แผนก/ออนไลน์', nameKw: 'ออนไลน์' },
-      { code: '6110-01', name: 'เงินเดือน-แผนก/คลัง', nameKw: 'คลัง' },
-      { code: '6110-01', name: 'เงินเดือน-แผนก/-ขนส่ง/ซ่อมบำรุง', nameKw: 'ขนส่ง' },
-      { code: '6110-01', name: 'เงินเดือน-แผนก/การตลาด', nameKw: 'การตลาด' },
-      { code: '6110-01', name: 'เงินเดือน-แผนก/แม่บ้าน', nameKw: 'แม่บ้าน' },
-      { code: '6110-01', name: 'เงินเดือน', isFallbackSalary: true },
+    // รายการ fallback สำหรับกรณีไม่มีข้อมูลจาก DB group
+    fallbackItems: [
+      { code: '6110-01', name: 'เงินเดือน' },
       { code: '6110-19', name: 'ค่าเบี้ยเลี้ยง 2/2 -WS' },
       { code: '6120-14', name: 'ค่าจ้าง 2/3' },
-      { code: '6110-02', name: 'ค่าล่วงเวลา-แผนก/บัญชี', nameKw: 'บัญชี' },
-      { code: '6110-02', name: 'ค่าล่วงเวลา-แผนก/ออนไลน์', nameKw: 'ออนไลน์' },
-      { code: '6110-02', name: 'ค่าล่วงเวลา-แผนก/คลัง', nameKw: 'คลัง' },
-      { code: '6110-02', name: 'ค่าล่วงเวลา-แผนก/-ขนส่ง/ซ่อมบำรุง', nameKw: 'ขนส่ง' },
+      { code: '6110-02', name: 'ค่าล่วงเวลา' },
       { code: '6110-04', name: 'โบนัส (ยังไม่ได้เอามาตั้ง)' },
       { code: '6110-05', name: 'เงินเพิ่มพิเศษ' },
       { code: '6110-09', name: 'เงินสมทบกองทุนประกันสังคม' },
       { code: '6110-10', name: 'เงินสมทบกองทุนทดแทน' },
     ],
+    // DB group name ที่ตรงกัน (ใช้ substring match)
+    dbGroupKeyword: 'บริหาร',
   },
   {
     type: 'cat-group',
@@ -370,24 +363,27 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     })
   }
 
-  // 2. Fallback to groups & ungroupedAccounts if rawAccounts is not available
+  // 1b. ALWAYS populate accountMap from groups accounts too
+  //     (even when rawAccounts exists) so sub-accounts added to groups show correctly
+  if (Array.isArray(rawData?.groups)) {
+    rawData.groups.forEach((g) => {
+      if (Array.isArray(g.accounts)) {
+        g.accounts.forEach((a) => {
+          if (a.code && !accountMap.has(a.code)) {
+            accountMap.set(a.code, {
+              code: a.code,
+              name: a.name || '',
+              monthly: getMonthlyArr(a),
+              total: Number(a.total) || 0,
+            })
+          }
+        })
+      }
+    })
+  }
+
+  // 2. Fallback to ungroupedAccounts if rawAccounts is not available
   if (accountMap.size === 0) {
-    if (Array.isArray(rawData?.groups)) {
-      rawData.groups.forEach((g) => {
-        if (Array.isArray(g.accounts)) {
-          g.accounts.forEach((a) => {
-            if (a.code && !accountMap.has(a.code)) {
-              accountMap.set(a.code, {
-                code: a.code,
-                name: a.name || '',
-                monthly: getMonthlyArr(a),
-                total: Number(a.total) || 0,
-              })
-            }
-          })
-        }
-      })
-    }
     if (Array.isArray(rawData?.ungroupedAccounts)) {
       rawData.ungroupedAccounts.forEach((a) => {
         if (a.code && !accountMap.has(a.code)) {
@@ -717,10 +713,85 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
           showPct: true,
         })
 
+
         // Add to grand total of expenses
         sgMonthly.forEach((v, i) => { grandTotalExpMonthly[i] += v })
         grandTotalExpSum += sgMonthly.reduce((a, b) => a + b, 0)
       })
+    } else if (block.type === 'cat-group-dynamic') {
+      // Dynamic category group — renders accounts from rawData.groups matching dbGroupKeyword,
+      // or falls back to fallbackItems (deduplicating codes to prevent duplicate amounts)
+      let subGroupMonthly = Array(12).fill(0)
+      const catItemRows = []
+      const addedCodes = new Set()
+
+      // Try to find matching group(s) from DB by keyword
+      const dbGroups = Array.isArray(rawData?.groups) ? rawData.groups : []
+      const matchingGroups = block.dbGroupKeyword
+        ? dbGroups.filter((g) =>
+            g.name?.includes(block.dbGroupKeyword) ||
+            g.code?.includes(block.dbGroupKeyword)
+          )
+        : []
+
+      if (matchingGroups.length > 0) {
+        // Use accounts from matching DB groups (dynamic — respects new sub-accounts)
+        matchingGroups.forEach((dbGroup) => {
+          if (Array.isArray(dbGroup.accounts)) {
+            dbGroup.accounts.forEach((acc) => {
+              if (!acc.code || addedCodes.has(acc.code)) return
+              addedCodes.add(acc.code)
+              usedAccountCodes.add(acc.code)
+              const mArr = getMonthlyArr(acc)
+              mArr.forEach((v, i) => { subGroupMonthly[i] += v })
+              catItemRows.push({
+                code: acc.code,
+                name: acc.name || acc.code,
+                type: 'item',
+                monthly: mArr,
+              })
+            })
+          }
+        })
+        // Also render fallbackItems with non-zero amounts not covered by DB group
+        if (Array.isArray(block.fallbackItems)) {
+          block.fallbackItems.forEach((itemSpec) => {
+            if (!itemSpec.code || addedCodes.has(itemSpec.code)) return
+            addedCodes.add(itemSpec.code)
+            const mArr = getItemMonthly(itemSpec, block.categoryKey)
+            if (mArr.some((v) => v !== 0)) {
+              mArr.forEach((v, i) => { subGroupMonthly[i] += v })
+              catItemRows.push({ code: itemSpec.code, name: itemSpec.name, type: 'item', monthly: mArr })
+            }
+          })
+        }
+      } else {
+        // Fallback: use fallbackItems deduped by code
+        const fallbackItems = block.fallbackItems || []
+        fallbackItems.forEach((itemSpec) => {
+          if (!itemSpec.code || addedCodes.has(itemSpec.code)) return
+          addedCodes.add(itemSpec.code)
+          const mArr = getItemMonthly(itemSpec, block.categoryKey)
+          mArr.forEach((v, i) => { subGroupMonthly[i] += v })
+          catItemRows.push({ code: itemSpec.code, name: itemSpec.name, type: 'item', monthly: mArr })
+        })
+      }
+
+      const catSum = subGroupMonthly.reduce((a, b) => a + b, 0)
+      const catPct = totalRevSum > 0 ? Number(((catSum / totalRevSum) * 100).toFixed(2)) : 0
+      rows.push({ type: 'category-header', title: `${block.title} (${catPct}%)`, catNum: block.catNum })
+      catItemRows.forEach((r) => addRow(r))
+      addRow({
+        code: '',
+        name: `รวม ${block.title.replace(/^3\.\d+\s*/, '')}`,
+        type: 'subtotal',
+        monthly: subGroupMonthly,
+        isBold: true,
+        showAvg: true,
+        showPct: true,
+      })
+      subGroupMonthly.forEach((v, i) => { grandTotalExpMonthly[i] += v })
+      grandTotalExpSum += catSum
     }
   }
 
