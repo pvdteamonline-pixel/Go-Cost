@@ -157,25 +157,32 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
     ],
   },
   {
-    type: 'cat-group-dynamic',
+    type: 'cat-group',
     id: 'cat-3-6',
     categoryKey: 'cat_3_6',
     catNum: '3.6',
     title: '3.6 ค่าใช้จ่ายในการบริหาร',
-    // รายการ fallback สำหรับกรณีไม่มีข้อมูลจาก DB group
-    fallbackItems: [
-      { code: '6110-01', name: 'เงินเดือน' },
-      { code: '6110-19', name: 'ค่าเบี้ยเลี้ยง 2/2 -WS' },
-      { code: '6120-18', name: 'ค่าจ้าง 2/3' },
-      { code: '6120-19', name: 'ค่าจ้าง 3/3' },
-      { code: '6110-02', name: 'ค่าล่วงเวลา' },
+    items: [
+      { code: '6110-01', name: 'เงินเดือน-แผนก/บริหาร' },
+      { code: '6110-01-01', name: 'เงินเดือน-แผนก/บัญชี' },
+      { code: '6110-01-02', name: 'เงินเดือน-แผนก/ออนไลน์' },
+      { code: '6110-01-03', name: 'เงินเดือน-แผนก/คลัง' },
+      { code: '6110-01-04', name: 'เงินเดือน-แผนก/-ขนส่ง/ซ่อมบำรุง' },
+      { code: '6110-01-05', name: 'เงินเดือน-แผนก/การตลาด' },
+      { code: '6110-01-06', name: 'เงินเดือน-แผนก/แม่บ้าน' },
+      { code: '6110-01-07', name: 'เงินเดือน' },
+      { code: '6110-02', name: 'ค่าล่วงเวลา-แผนก/บัญชี' },
+      { code: '6110-02-01', name: 'ค่าล่วงเวลา-แผนก/ออนไลน์' },
+      { code: '6110-02-02', name: 'ค่าล่วงเวลา-แผนก/คลัง' },
+      { code: '6110-02-03', name: 'ค่าล่วงเวลา-แผนก/-ขนส่ง/ซ่อมบำรุง' },
       { code: '6110-04', name: 'โบนัส (ยังไม่ได้เอามาตั้ง)' },
       { code: '6110-05', name: 'เงินเพิ่มพิเศษ' },
       { code: '6110-09', name: 'เงินสมทบกองทุนประกันสังคม' },
       { code: '6110-10', name: 'เงินสมทบกองทุนทดแทน' },
+      { code: '6110-19', name: 'ค่าเบี้ยเลี้ยง 2/2 -WS' },
+      { code: '6120-19', name: 'ค่าจ้าง 3/3' },
     ],
-    // DB group name ที่ตรงกัน (ใช้ substring match)
-    dbGroupKeyword: 'บริหาร',
+    autoPrefixes: ['6110-01-', '6110-02-'],
   },
   {
     type: 'cat-group',
@@ -213,7 +220,7 @@ export const EXEC_REPORT_PIVOT_STRUCTURE = [
     items: [
       { code: '6120-12', name: 'ค่าบริการทำบัญชี' },
       { code: '6120-13', name: 'ค่าบริการ' },
-      { code: '6120-18', name: 'ค่าจ้าง 3/3' },
+      { code: '6120-18', name: 'ค่าจ้าง 2/3' },
       { code: '6120-15', name: 'ค่าที่ปรึกษา' },
     ],
   },
@@ -684,6 +691,27 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
           monthly: mArr,
         })
       })
+
+      // Check autoPrefixes (e.g. for salary/OT sub-accounts like 6110-01-*, 6110-02-*)
+      if (Array.isArray(block.autoPrefixes)) {
+        accountMap.forEach((acc, accCode) => {
+          if (!knownGroupCodes.has(accCode) && !usedAccountCodes.has(accCode)) {
+            const matchesPrefix = block.autoPrefixes.some((pfx) => accCode.startsWith(pfx))
+            const userMapping = customMappings[accCode]
+            if (matchesPrefix && (!userMapping || userMapping === 'auto' || userMapping === block.categoryKey)) {
+              knownGroupCodes.add(accCode)
+              usedAccountCodes.add(accCode)
+              acc.monthly.forEach((v, i) => { subGroupMonthly[i] += v })
+              catItemRows.push({
+                code: accCode,
+                name: acc.name || accCode,
+                type: 'item',
+                monthly: acc.monthly.slice(),
+              })
+            }
+          }
+        })
+      }
 
       // Append extra accounts user mapped to this category (not in items list)
       const extra = getExtraGroupMonthly(block.categoryKey, knownGroupCodes)
