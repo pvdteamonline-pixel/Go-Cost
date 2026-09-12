@@ -1,39 +1,29 @@
 import { useState, useEffect } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
 import ExpenseEntryPage from './pages/ExpenseEntryPage'
+import ExpenseReportsPage from './pages/ExpenseReportsPage'
 import ExpenseHistoryPage from './pages/ExpenseHistoryPage'
 import PendingEditsPage from './pages/PendingEditsPage'
 import UsersManagementPage from './pages/UsersManagementPage'
 import StoresManagementPage from './pages/StoresManagementPage'
-import AccountsManagementPage from './pages/AccountsManagementPage'
-import AccountGroupsPage from './pages/AccountGroupsPage'
-import AccountFileImportPage from './pages/AccountFileImportPage'
-import ReconciliationPage from './pages/ReconciliationPage'
-import BudgetManagementPage from './pages/BudgetManagementPage'
 import ExecutiveDashboardPage from './pages/ExecutiveDashboardPage'
-import ExecutiveReportPage from './pages/ExecutiveReportPage'
-import TaxReportPage from './pages/TaxReportPage'
 import AuditLogPage from './pages/AuditLogPage'
 import WorkshopCreatePage from './pages/WorkshopCreatePage'
 import WorkshopHistoryPage from './pages/WorkshopHistoryPage'
 import WorkshopApprovalPage from './pages/WorkshopApprovalPage'
 import TrialBalancePage from './pages/TrialBalancePage'
-import ExternalExpensePage from './pages/ExternalExpensePage'
-import PLReportPage from './pages/PLReportPage'
 import ReportsHubPage from './pages/ReportsHubPage'
 import AccountsHubPage from './pages/AccountsHubPage'
-import ReconTrialHubPage from './pages/ReconTrialHubPage'
 import BudgetsOtherHubPage from './pages/BudgetsOtherHubPage'
 import NotificationsBell from './components/NotificationsBell'
 import { NAV_GROUPS } from './lib/constants'
 import { hasPagePermission } from './lib/permissions'
 import { supabase } from './lib/supabaseClient'
-import { THAI_MONTHS } from './lib/constants'
+import Icon from './components/Icon'
 
 const IMPLEMENTED_PAGES = {
-  dashboard: DashboardPage,
+  'expense-report': ExpenseReportsPage,
   'expense-entry': ExpenseEntryPage,
   'expense-history': ExpenseHistoryPage,
   'pending-edits': PendingEditsPage,
@@ -43,9 +33,7 @@ const IMPLEMENTED_PAGES = {
   'account-groups': (props) => <AccountsHubPage initialTab="account-groups" {...props} />,
   'account-import': (props) => <AccountsHubPage initialTab="account-import" {...props} />,
   'accounts-hub': (props) => <AccountsHubPage initialTab="accounts" {...props} />,
-  reconciliation: (props) => <ReconTrialHubPage initialTab="reconciliation" {...props} />,
-  'trial-balance': (props) => <ReconTrialHubPage initialTab="trial-balance" {...props} />,
-  'recon-hub': (props) => <ReconTrialHubPage initialTab="reconciliation" {...props} />,
+  'trial-balance': TrialBalancePage,
   budgets: (props) => <BudgetsOtherHubPage initialTab="budgets" {...props} />,
   'external-expenses': (props) => <BudgetsOtherHubPage initialTab="external-expenses" {...props} />,
   'budgets-hub': (props) => <BudgetsOtherHubPage initialTab="budgets" {...props} />,
@@ -94,7 +82,7 @@ function DataStatusBox() {
             latestMonthRange: latest.month_range || null,
           })
         }
-      } catch (e) {
+      } catch {
         // silent fail
       }
       setLoading(false)
@@ -116,9 +104,6 @@ function DataStatusBox() {
 
   const monthName = status?.latestMonthRange || null
 
-  // คำนวณเดือนถัดไปจาก year ล่าสุด (บางทีเดือน range = "ม.ค.-ธ.ค." แสดงว่ามีข้อมูลครบทั้งปี)
-  const nextYear = status?.latestYear ? Number(status.latestYear) + 1 : null
-  const nextPeriod = nextYear ? `ปี ${nextYear}` : null
 
   return (
     <div className="mt-3 pt-3 border-t border-black/10 space-y-2">
@@ -139,16 +124,12 @@ function DataStatusBox() {
             <div className="flex items-start gap-1.5">
               <span className="text-xs mt-0.5">📅</span>
               <div>
-                <p className="text-[10px] text-ink-500">ยอดล่าสุดคือ</p>
+                <p className="text-[10px] text-ink-500">ช่วงเดือนที่ระบุในไฟล์</p>
                 <p className="text-[11px] font-medium text-ocean">{monthName} ปี {status?.latestYear}</p>
               </div>
             </div>
           )}
-          {nextPeriod && (
-            <div className="bg-sage-pale/60 rounded-lg px-2 py-1.5 border border-sage/20">
-              <p className="text-[9px] text-sage font-medium">→ ลงยอดถัดไป: {nextPeriod}</p>
-            </div>
-          )}
+
         </div>
       ) : (
         <div className="bg-amber-50/80 border border-amber-200/60 rounded-xl p-2.5">
@@ -160,35 +141,34 @@ function DataStatusBox() {
   )
 }
 
-function Sidebar({ active, onNavigate }) {
+function Sidebar({ active, onNavigate, collapsed, onToggle }) {
   const { currentUser, logout } = useAuth()
   const visibleGroups = NAV_GROUPS
     .map((group) => ({ ...group, items: group.items.filter((item) => hasPagePermission(currentUser, item.key)) }))
     .filter((group) => group.items.length > 0)
 
   return (
-    <aside className="w-64 shrink-0 glass-solid m-4 mr-0 p-5 flex flex-col">
-      <div className="mb-8">
-        <h1 className="font-display italic text-2xl text-ink-900">GoCost</h1>
-        <p className="text-ink-500 text-xs mt-0.5">คุมค่าใช้จ่าย</p>
+    <aside id="main-navigation" className={`app-sidebar glass-solid ${collapsed ? "is-collapsed" : ""}`}>
+      <div className="sidebar-brand">
+        <div className="sidebar-brand-copy"><h1 className="brand-shimmer font-display text-2xl">GoCost</h1>
+        <p className="text-ink-500 text-xs mt-0.5">คุมค่าใช้จ่าย</p></div>
+        <button className="icon-button" onClick={onToggle} aria-label={collapsed ? "เปิดเมนู" : "พับเมนู"} aria-expanded={!collapsed} aria-controls="main-navigation"><Icon name={collapsed ? "menu" : "collapse"} /></button>
       </div>
 
-      <nav className="flex-1 space-y-6 overflow-y-auto">
+      <nav aria-label="เมนูหลัก" className="sidebar-nav">
         {visibleGroups.map((group) => (
           <div key={group.label}>
-            <p className="text-[11px] uppercase tracking-wider text-ink-400 mb-2 px-2">{group.label}</p>
+            <p className="sidebar-group-title">{group.label}</p>
             <div className="space-y-1">
               {group.items.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => onNavigate(item.key)}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-sm transition-colors ${
-                    active === item.key
-                      ? 'bg-gold-pale text-gold-dark border border-gold/30'
-                      : 'text-ink-700 hover:bg-ink-100 border border-transparent'
-                  }`}
+                  aria-current={active === item.key ? 'page' : undefined}
+                  title={item.label}
+                  className={`sidebar-link ${active === item.key ? 'is-active' : ''}`}
                 >
-                  {item.label}
+                  <Icon name={item.icon} /><span className="sidebar-label">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -196,7 +176,7 @@ function Sidebar({ active, onNavigate }) {
         ))}
       </nav>
 
-      <div className="pt-4 border-t border-black/10">
+      <div className="sidebar-footer">
         <p className="text-ink-900 text-sm">{currentUser?.full_name || currentUser?.name}</p>
         <p className="text-ink-500 text-xs mb-3">{currentUser?.role}</p>
         <button onClick={logout} className="btn-ghost w-full text-sm">ออกจากระบบ</button>
@@ -208,28 +188,46 @@ function Sidebar({ active, onNavigate }) {
 
 function Shell() {
   const { currentUser } = useAuth()
-  const firstPermitted = NAV_GROUPS.flatMap((g) => g.items).find((i) => hasPagePermission(currentUser, i.key))?.key ?? 'dashboard'
+  const firstPermitted = NAV_GROUPS.flatMap((g) => g.items).find((i) => hasPagePermission(currentUser, i.key))?.key ?? ''
   const [active, setActive] = useState(firstPermitted)
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('gocost_sidebar_collapsed') === 'true' || window.matchMedia('(max-width: 760px)').matches } catch { return false }
+  })
+  const toggleSidebar = () => setCollapsed(value => {
+    try { localStorage.setItem('gocost_sidebar_collapsed', String(!value)) } catch { /* Storage is optional. */ }
+    return !value
+  })
+  const navigate = (key) => {
+    setActive(key)
+    if (window.matchMedia('(max-width: 760px)').matches) setCollapsed(true)
+  }
+  useEffect(() => {
+    const close = (event) => { if (event.key === 'Escape') setCollapsed(true) }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [])
   const ActivePage = IMPLEMENTED_PAGES[active]
   const activeLabel = NAV_GROUPS.flatMap((g) => g.items).find((i) => i.key === active)?.label ?? ''
   const allowed = hasPagePermission(currentUser, active)
 
   return (
-    <div className="min-h-screen flex">
-      <Sidebar active={active} onNavigate={setActive} />
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
+      {!collapsed && <button className="sidebar-scrim" aria-label="ปิดเมนู" onClick={() => setCollapsed(true)} />}
+      <Sidebar active={active} onNavigate={navigate} collapsed={collapsed} onToggle={toggleSidebar} />
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center justify-between px-8 py-4">
-          <h2 className="text-ink-600 text-sm">{activeLabel}</h2>
+        <header className="app-header">
+          <button className="icon-button mobile-menu" onClick={toggleSidebar} aria-label="เปิดเมนูหลัก" aria-expanded={!collapsed}><Icon name="menu" /></button>
+          <h2 className="brand-shimmer text-sm">{activeLabel}</h2>
           <NotificationsBell />
         </header>
-        <main className="flex-1 px-8 pb-8 overflow-y-auto">
+        <main className="app-main">
           {!allowed && (
             <div className="max-w-2xl mx-auto glass p-10 text-center">
               <p className="doc-badge mb-4">ไม่มีสิทธิ์เข้าถึง</p>
               <p className="text-ink-600 text-sm">คุณไม่มีสิทธิ์เข้าถึงหน้านี้ — ติดต่อ Admin หากคิดว่าควรมีสิทธิ์</p>
             </div>
           )}
-          {allowed && (ActivePage ? <ActivePage onNavigate={setActive} /> : <ComingSoon label={activeLabel} />)}
+          {allowed && (ActivePage ? <ActivePage onNavigate={navigate} /> : <ComingSoon label={activeLabel} />)}
         </main>
       </div>
     </div>

@@ -2,6 +2,7 @@
 // การบังคับสิทธิ์จริงเกิดที่ RPC ฝั่ง server เสมอ อย่าพึ่งพาไฟล์นี้เพื่อความปลอดภัย
 export function hasPagePermission(user, pageKey) {
   if (!user) return false
+  if (pageKey === 'expense-report') return user.role === 'ADMIN' || ['expense-history', 'expense-report', 'workshop-plan-view', 'workshop-approve'].some(key => user.page_permissions?.includes(key))
   if (user.role === 'ADMIN') return true
   return Array.isArray(user.page_permissions) && user.page_permissions.includes(pageKey)
 }

@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
+import DocumentCalendar from '../components/DocumentCalendar'
+import ExpenseInsight from '../components/ExpenseInsight'
+import { openAttachment } from '../lib/expenseAttachments'
 import StoreSearchDropdown from '../components/StoreSearchDropdown'
 
 const STATUS_LABEL = {
@@ -20,6 +23,7 @@ function formatBaht(n) {
 
 export default function WorkshopHistoryPage() {
   const { currentUser } = useAuth()
+  const [insight,setInsight]=useState(null)
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -57,7 +61,7 @@ export default function WorkshopHistoryPage() {
     const { data, error: err } = await supabase.rpc('get_workshop_plans', { p_actor_id: currentUser?.id ?? null })
     setLoading(false)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    setPlans((data ?? []).filter((p) => p.created_by === currentUser?.id))
+    setPlans((data ?? []).filter((p) => currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id))
   }, [currentUser])
 
   useEffect(() => { if (canView) load() }, [canView, load])
@@ -205,6 +209,8 @@ export default function WorkshopHistoryPage() {
         <p className="text-ink-600 text-sm mt-1">ติดตามสถานะแผน Workshop ของคุณทั้งหมด</p>
       </div>
 
+      <DocumentCalendar documents={plans.map(p=>({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount}))} onSelect={setInsight}/>
+      {insight&&<ExpenseInsight doc={insight} onClose={()=>setInsight(null)}/>}
       {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
       {error && !fillingPlan && !editingRequest && (
         <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>
@@ -237,7 +243,9 @@ export default function WorkshopHistoryPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button className="btn-ghost text-xs" onClick={()=>setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}>Insight</button>
+                  {p.attachment_path&&<button className="btn-ghost text-xs" onClick={()=>openAttachment(p.attachment_path).catch(e=>setError(e.message))}>ไฟล์แนบ</button>}
                   {p.status === 'awaiting_sales_data' && (
                     <button onClick={() => openFillForm(p)} className="btn-primary text-xs px-4 py-2">กรอกข้อมูลหลังงาน</button>
                   )}

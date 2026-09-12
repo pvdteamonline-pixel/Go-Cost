@@ -44,7 +44,7 @@ export default function ReportsHubPage({ initialTab = 'exec-report', onNavigate 
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 min-w-[200px] flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
                 isActive
-                  ? 'bg-gradient-to-r from-gold-pale to-amber-100/80 text-ink-900 font-semibold shadow-sm border border-gold/40 ring-2 ring-gold/20 scale-[1.01]'
+                  ? 'bg-gradient-to-r from-ocean/10 to-ocean/5 text-ink-900 font-semibold shadow-sm border border-ocean/25 ring-2 ring-ocean/5'
                   : 'text-ink-600 hover:text-ink-900 hover:bg-white/80 border border-transparent'
               }`}
             >

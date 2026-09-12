@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import ExportModal from '../components/ExportModal'
+import ExecutiveReportDashboard from '../components/ExecutiveReportDashboard'
+import Icon from '../components/Icon'
+import { loadReportDocuments } from '../lib/reportDocuments'
 import {
   MONTH_SHORT,
   PIVOT_CATEGORY_OPTIONS,
@@ -33,7 +36,7 @@ function buildExcelSheet(pivotData, year) {
       } else if (r.type === 'category-header') {
         rows.push(['', r.title, ...Array(15).fill('')])
       } else if (r.type === 'pct-row') {
-        rows.push(['', r.name, ...Array(14).fill(''), r.pctValue || ''])
+        rows.push(['', r.name, ...(r.monthlyPct || Array(12).fill(null)).map(v => v === null ? '' : `${v}%`), r.pctValue || '', '', ''])
       } else if (r.type === 'diff-row') {
         rows.push(['', r.name, ...Array(14).fill(''), r.value || '-'])
       } else {
@@ -59,6 +62,12 @@ export default function ExecutiveReportPage({ onNavigate }) {
   const [rawData, setRawData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [accounts, setAccounts] = useState([])
+  const [documents, setDocuments] = useState(null)
+  const [budgets, setBudgets] = useState(null)
+  const [budgetError, setBudgetError] = useState('')
+  const requestVersion = useRef(0)
+  const [loadedYear, setLoadedYear] = useState(null)
 
   // State for Custom Mapping Overrides per year
   const [customMappings, setCustomMappings] = useState({})
@@ -160,26 +169,55 @@ export default function ExecutiveReportPage({ onNavigate }) {
   }
 
   const load = useCallback(async () => {
+    const version = ++requestVersion.current
     setLoading(true)
     setError('')
-    const { data: res, error: err } = await supabase.rpc('get_executive_monthly_report', {
-      p_actor_id: currentUser?.id ?? null,
-      p_year: year,
-    })
-    setLoading(false)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!res.success) return setError(res.message)
-    setRawData(res)
-  }, [currentUser, year])
+    setRawData(null)
+    setBudgets(null)
+    setBudgetError('')
+    try {
+      const [report, dashboard, metadata, documentCounts] = await Promise.all([
+        supabase.rpc('get_executive_monthly_report', { p_actor_id: currentUser?.id ?? null, p_year: year }),
+        supabase.rpc('get_executive_dashboard', { p_actor_id: currentUser?.id ?? null, p_year: year }),
+        (async () => {
+          const rows = []
+          for (let offset = 0; ; offset += 1000) {
+            const result = await supabase.rpc('get_accounts', { p_actor_id: currentUser?.id ?? null, p_query: null }).range(offset, offset + 999)
+            if (result.error) return result
+            rows.push(...(result.data || []))
+            if (result.data.length < 1000) return { data: rows }
+          }
+        })(),
+        loadReportDocuments(supabase, year, currentUser?.id ?? null),
+      ])
+      if (version !== requestVersion.current) return
+      if (report.error || !report.data?.success) throw new Error(report.error?.message || report.data?.message || 'ไม่สามารถโหลดรายงานได้')
+      setRawData(report.data)
+      setLoadedYear(year)
+      setAccounts(metadata.data || [])
+      setDocuments(documentCounts)
+      if (dashboard.error || !dashboard.data?.success || metadata.error) {
+        setBudgetError('โหลดข้อมูลงบหรือหมวดบัญชีไม่สำเร็จ กรุณารีเฟรช ไม่สามารถยืนยันสถานะงบได้')
+      } else {
+        setBudgets(dashboard.data.byCategory || [])
+      }
+    } catch (err) {
+      if (version === requestVersion.current) setError('เกิดข้อผิดพลาด: ' + err.message)
+    } finally {
+      if (version === requestVersion.current) setLoading(false)
+    }
+  }, [currentUser?.id, year])
 
   useEffect(() => {
+    const versionRef = requestVersion
     if (canUse) load()
+    return () => { versionRef.current++ }
   }, [canUse, load])
 
   const pivotData = useMemo(() => {
-    if (!rawData) return null
+    if (!rawData || loadedYear !== year) return null
     return buildExecutivePivotData(rawData, year, month, customMappings)
-  }, [rawData, year, month, customMappings])
+  }, [rawData, loadedYear, year, month, customMappings])
 
   if (!canUse) {
     return (
@@ -191,9 +229,9 @@ export default function ExecutiveReportPage({ onNavigate }) {
   }
 
   return (
-    <div className="max-w-full mx-auto space-y-6">
+    <div className="executive-report max-w-full mx-auto space-y-6">
       {/* Header Controls */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="report-controls flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">รายงานผู้บริหาร</h1>
           <p className="text-ink-600 text-sm mt-1">
@@ -203,7 +241,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowAuditModal(true)}
-            className="px-3 py-2 bg-gradient-to-r from-ocean to-indigo-600 text-white font-medium text-xs rounded-xl shadow-sm hover:opacity-95 transition-all flex items-center gap-1.5"
+            className="px-3 py-2 bg-gradient-to-r from-ocean to-[#17364b] text-white font-medium text-xs rounded-xl shadow-sm hover:opacity-95 transition-all flex items-center gap-1.5"
           >
             <span>🛡️ ด่านตรวจสอบและปรับแต่งรหัสบัญชี</span>
             {pivotData?.unmatchedAccounts?.length > 0 && (
@@ -215,12 +253,13 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
           {pivotData && (
             <ExportModal
-              fileNameBase={`ประมาณการกำไร(ขาดทุน)_ผู้บริหาร_${year}`}
+              fileNameBase={`ประมาณการกำไร(ขาดทุน)_ผู้บริหาร_${year}${month ? `_${month}` : ''}`}
               excelSheets={buildExcelSheet(pivotData, year)}
               pdfPreview={<ExecReportPdfPreview pivotData={pivotData} year={year} month={month} />}
             />
           )}
-          <select className="glass-input text-sm w-36" value={month} onChange={(e) => setMonth(e.target.value)}>
+          <button className="btn-ghost inline-flex items-center gap-2 text-sm" onClick={load} disabled={loading}><Icon name="refresh" size={16} />รีเฟรช</button>
+          <select aria-label="เดือนรายงาน" className="glass-input text-sm w-36" value={month} onChange={(e) => setMonth(e.target.value)}>
             <option value="">ทุกเดือน (ทั้งปี)</option>
             {MONTH_SHORT.map((m, idx) => (
               <option key={idx + 1} value={idx + 1}>
@@ -228,7 +267,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
               </option>
             ))}
           </select>
-          <select className="glass-input text-sm w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+          <select aria-label="ปีรายงาน" className="glass-input text-sm w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
               <option key={y} value={y}>
                 {y}
@@ -259,7 +298,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
                 <p className="font-semibold text-sm text-ink-900">
                   {pivotData.unmatchedAccounts?.length > 0
                     ? `พบรหัสบัญชี ${pivotData.unmatchedAccounts.length} รหัส ที่ไม่อยู่ใน Template Standard`
-                    : 'ตรวจสอบข้อมูลสมบูรณ์ 100%: ทุกรหัสบัญชีถูกจัดหมวดหมู่อย่างถูกต้อง'}
+                    : 'จัดหมวดหมู่ครบตามผังรายงาน: สามารถตรวจรายละเอียดรหัสบัญชีได้'}
                 </p>
                 <p className="text-xs text-ink-600 mt-0.5">
                   พบข้อมูลรหัสบัญชีทั้งหมด {pivotData.allDetectedAccounts?.length || 0} รหัส | รวมยอดต้นทุนสินค้า COGS ={' '}
@@ -280,8 +319,10 @@ export default function ExecutiveReportPage({ onNavigate }) {
             </button>
           </div>
 
+          <ExecutiveReportDashboard pivot={pivotData} accounts={accounts} budgets={budgets} budgetError={budgetError} documents={documents} month={month} year={year} onNavigate={onNavigate} canSetBudget={hasPagePermission(currentUser, 'budgets')} />
+
           {/* Pivot Table Container */}
-          <div className="glass p-4 overflow-x-auto">
+          <div className="glass p-4 overflow-x-auto pivot-scroll">
             <div className="flex items-center justify-between mb-3 text-xs text-ink-500 flex-wrap gap-2">
               <div>
                 <span>ฐานข้อมูลมีข้อมูลจริง </span>
@@ -364,7 +405,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
                         <td className="py-1 px-2 font-medium">{r.name}</td>
                         {Array(12).fill(0).map((_, i) => (
                           <td key={i} className={`text-right py-1 px-1.5 tabular-nums ${isYellowPct ? 'text-yellow-900 font-semibold' : 'text-ink-500'}`}>
-                            {r.monthlyPct && r.monthlyPct[i] ? `${r.monthlyPct[i]}%` : ''}
+                            {r.monthlyPct?.[i] !== null && r.monthlyPct?.[i] !== undefined ? `${r.monthlyPct[i]}%` : '—'}
                           </td>
                         ))}
                         <td className={`text-right py-1 px-2 font-bold tabular-nums ${isYellowPct ? 'text-yellow-950 bg-yellow-200/60' : 'text-ink-600 bg-ink-100/30'}`}>

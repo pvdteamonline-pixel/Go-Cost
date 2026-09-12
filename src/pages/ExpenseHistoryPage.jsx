@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import ExpenseInsight from '../components/ExpenseInsight'
+import { groupExpenseDocuments, DOCUMENT_STATUS } from '../lib/expenseSummary'
 import ExpenseEditModal from '../components/ExpenseEditModal'
 
 function formatBaht(n) {
@@ -17,8 +19,10 @@ function formatThaiDate(isoDate) {
   return `${day}/${month}/${year}`
 }
 
-export default function ExpenseHistoryPage() {
+export default function ExpenseHistoryPage({onNavigate}) {
   const { currentUser } = useAuth()
+  const [requests,setRequests]=useState([])
+  const [month,setMonth]=useState('')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -30,46 +34,25 @@ export default function ExpenseHistoryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const { data, error: err } = await supabase.rpc('get_expense_history')
+    const { data, error: err } = await supabase.rpc('get_operational_report', {p_actor_id:currentUser.id})
     setLoading(false)
     if (err) {
       setError('เกิดข้อผิดพลาด: ' + err.message)
       return
     }
-    setRows(data ?? [])
-  }, [])
+    setRows(data?.expenses ?? []); setRequests(data?.requests ?? [])
+  }, [currentUser.id])
 
   useEffect(() => { load() }, [load])
 
   const documents = useMemo(() => {
-    const byDoc = new Map()
-    for (const r of rows) {
-      if (!byDoc.has(r.doc_number)) {
-        byDoc.set(r.doc_number, {
-          docNo: r.doc_number,
-          storeName: r.store_name,
-          eventDate: r.event_date,
-          attendees: r.attendees,
-          workDays: r.work_days,
-          internalNote: r.internal_note,
-          items: [],
-          total: 0,
-        })
-      }
-      const doc = byDoc.get(r.doc_number)
-      doc.items.push({
-        mainCategory: r.main_category, detail: r.detail, qty: r.qty,
-        unit: r.unit, unitPrice: r.unit_price, remark: r.remark, total: r.total, accountId: r.account_id,
-      })
-      doc.total += Number(r.total) || 0
-    }
-    let list = Array.from(byDoc.values())
+    let list = groupExpenseDocuments(rows,requests).filter(d=>!month||d.eventDate?.startsWith(month))
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((d) => d.docNo.toLowerCase().includes(q) || d.storeName.toLowerCase().includes(q))
     }
     return list
-  }, [rows, search])
+  }, [rows, search, requests, month])
 
   async function handleRequestDelete(docNo) {
     if (!confirm(`ยืนยันส่งคำขอลบเอกสาร ${docNo}? (ต้องรอผู้มีสิทธิ์อนุมัติ)`)) return
@@ -79,12 +62,12 @@ export default function ExpenseHistoryPage() {
     })
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
     if (!data.success) return setError(data.message)
-    setNotice(data.message)
+    setNotice(data.message);load()
   }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap gap-3 items-center justify-between">
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">ประวัติรายการ</h1>
           <p className="text-ink-600 text-sm mt-1">การแก้ไข/ลบต้องส่งคำขอและรอผู้มีสิทธิ์อนุมัติ</p>
@@ -97,6 +80,7 @@ export default function ExpenseHistoryPage() {
         />
       </div>
 
+      <div className="flex flex-wrap gap-3"><input aria-label="เดือนประวัติรายการ" type="month" value={month} onChange={e=>setMonth(e.target.value)} className="glass-input"/><button className="btn-ghost" onClick={()=>setMonth('')}>ทุกเดือน</button><button className="btn-ghost" onClick={load}>รีเฟรช</button><button className="btn-ghost" onClick={()=>onNavigate('expense-report')}>รายงาน / ปฏิทิน</button><button className="btn-primary" onClick={()=>onNavigate('expense-entry')}>+ สร้างเอกสาร</button></div>
       {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
       {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
@@ -113,38 +97,30 @@ export default function ExpenseHistoryPage() {
                 <span className="doc-badge">{doc.docNo}</span>
                 <div>
                   <p className="text-ink-900 text-sm">{doc.storeName}</p>
-                  <p className="text-ink-500 text-xs">{formatThaiDate(doc.eventDate)} · {doc.items.length} รายการ</p>
+                  <p className="text-ink-500 text-xs">{formatThaiDate(doc.eventDate)} · {doc.items.length} รายการ · {DOCUMENT_STATUS[doc.status]}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-gold-dark font-display italic text-lg">{formatBaht(doc.total)}</span>
+                <span className="text-gold-dark font-display italic text-lg">ค่าใช้จ่าย {formatBaht(doc.expense)} · รายได้ {formatBaht(doc.income)}</span>
                 <button onClick={() => setExpandedDoc(expandedDoc === doc.docNo ? null : doc.docNo)} className="btn-ghost text-xs px-3 py-1.5">
-                  {expandedDoc === doc.docNo ? 'ย่อ' : 'ดูรายการ'}
+                  Insight
                 </button>
                 <button onClick={() => setEditingDoc(doc)} className="btn-ghost text-xs px-3 py-1.5">ขอแก้ไข</button>
                 <button onClick={() => handleRequestDelete(doc.docNo)} className="text-rose text-xs hover:underline">ขอลบ</button>
               </div>
             </div>
 
-            {expandedDoc === doc.docNo && (
-              <div className="mt-4 pt-4 border-t border-black/10 space-y-2">
-                {doc.items.map((it, i) => (
-                  <div key={i} className="flex justify-between text-sm text-ink-700">
-                    <span>{it.mainCategory} — {it.detail} {it.remark && `(${it.remark})`}</span>
-                    <span>{it.qty} {it.unit} × {formatBaht(it.unitPrice)} = {formatBaht(it.total)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+
           </div>
         ))}
       </div>
 
+      {expandedDoc && documents.find(d=>d.docNo===expandedDoc)&&<ExpenseInsight doc={documents.find(d=>d.docNo===expandedDoc)} onClose={()=>setExpandedDoc(null)}/>}
       {editingDoc && (
         <ExpenseEditModal
           doc={editingDoc}
           onClose={() => setEditingDoc(null)}
-          onSubmitted={(message) => { setNotice(message); setEditingDoc(null) }}
+          onSubmitted={(message) => { setNotice(message); setEditingDoc(null); load() }}
         />
       )}
     </div>

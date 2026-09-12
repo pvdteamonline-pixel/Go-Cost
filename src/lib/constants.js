@@ -7,6 +7,7 @@ export const MAIN_CATEGORIES = [
   "ค่าใช้จ่าย งาน Event",
   "ค่าใช้จ่าย ถ่าย Content",
   "ค่าโปรโมท",
+  "รายได้",
   "",
 ]
 
@@ -49,14 +50,16 @@ export const THAI_MONTHS = [
 // เมนูฝั่ง sidebar แบ่งกลุ่มตามหมวดฟีเจอร์ของแอพเดิม
 export const NAV_GROUPS = [
   {
-    label: 'ภาพรวม',
+    label: 'รายงานและภาพรวม',
     items: [
-      { key: 'dashboard', label: 'แดชบอร์ด', icon: 'chart' },
+      { key: 'exec-report', label: 'รายงานทางการเงิน', icon: 'chart' },
+      { key: 'exec-dashboard', label: 'แดชบอร์ดฝ่ายบริหาร', icon: 'chart' },
     ],
   },
   {
     label: 'ค่าใช้จ่าย',
     items: [
+      { key: 'expense-report', label: 'รายงานค่าใช้จ่าย / ปฏิทิน', icon: 'calendar' },
       { key: 'expense-entry', label: 'บันทึกค่าใช้จ่าย', icon: 'plus' },
       { key: 'expense-history', label: 'ประวัติรายการ', icon: 'history' },
     ],
@@ -70,12 +73,10 @@ export const NAV_GROUPS = [
     ],
   },
   {
-    label: 'กระทบยอดบัญชี',
+    label: 'บัญชีและงบประมาณ',
     items: [
-      { key: 'exec-dashboard', label: 'แดชบอร์ดฝ่ายบริหาร', icon: 'chart' },
-      { key: 'exec-report', label: 'รายงานทางการเงิน', icon: 'file' },
       { key: 'accounts', label: 'ศูนย์จัดการทางบัญชี', icon: 'list' },
-      { key: 'reconciliation', label: 'ทดลอง/เทียบยอด', icon: 'scale' },
+      { key: 'trial-balance', label: 'งบทดลอง', icon: 'scale' },
       { key: 'budgets', label: 'ตั้งงบ/อื่นๆ', icon: 'cash' },
     ],
   },

@@ -352,7 +352,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
 
   const getMonthlyArr = (item) => {
     if (Array.isArray(item.monthly) && item.monthly.length === 12) {
-      return item.monthly.map((v) => Number(v) || 0)
+      return item.monthly.map((v, i) => monthFilter && i !== Number(monthFilter) - 1 ? 0 : Number(v) || 0)
     }
     return Array(12).fill(0)
   }
@@ -418,7 +418,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     }
     if (monthHasData) activeMonths++
   }
-  const activeMonthsCount = activeMonths > 0 ? activeMonths : 1
+  const activeMonthsCount = activeMonths
 
   // Track used account codes to identify unmatched/unmapped items
   const usedAccountCodes = new Set()
@@ -521,7 +521,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
   })
 
   // Fallback to rawData.cogsMonthly if accountMap has 0 COGS but rawData provided it
-  const hasCogsInAcc = cogsMonthly.some((v) => v !== 0)
+  const hasCogsInAcc = detectedCogsCodes.length > 0
   if (!hasCogsInAcc && rawData?.cogsMonthly) {
     cogsMonthly = getMonthlyArr({ monthly: rawData.cogsMonthly })
   }
@@ -552,7 +552,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     }
 
     const effectiveActiveMonths = monthFilter ? 1 : activeMonthsCount
-    const avgPerMonth = total / effectiveActiveMonths
+    const avgPerMonth = effectiveActiveMonths > 0 ? total / effectiveActiveMonths : 0
 
     let pctOfRevenue = null
     const denominator = monthFilter ? totalRevMonthly[Number(monthFilter) - 1] : totalRevSum
@@ -596,6 +596,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     } else if (block.type === 'formula') {
       if (block.id === 'gross-revenue') {
         addRow({
+          id: block.id,
           code: '',
           name: 'รายได้ขั้นต้น',
           type: 'formula',
@@ -604,6 +605,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
         })
       } else if (block.id === 'total-revenue') {
         addRow({
+          id: block.id,
           code: '',
           name: 'รวมรายได้',
           type: 'formula',
@@ -613,6 +615,7 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
         })
       } else if (block.id === 'gross-profit') {
         addRow({
+          id: block.id,
           code: '',
           name: 'รายได้-ต้นทุน = กำไรขั้นต้น ยังไม่หักค่าใช้จ่ายของกิจการ',
           type: 'formula',
@@ -624,42 +627,45 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
       }
     } else if (block.type === 'pct-row') {
       if (block.id === 'cogs-pct') {
-        const pctVal = totalRevSum > 0 ? Number(((cogsTotal / totalRevSum) * 100).toFixed(2)) : 0
+        const pctVal = totalRevSum !== 0 ? Number(((cogsTotal / totalRevSum) * 100).toFixed(2)) : null
         // Monthly COGS% = COGS_month / Revenue_month * 100
         let monthlyPct = totalRevMonthly.map((rev, i) =>
-          rev > 0 ? Number(((cogsMonthly[i] / rev) * 100).toFixed(2)) : 0
+          rev !== 0 ? Number(((cogsMonthly[i] / rev) * 100).toFixed(2)) : null
         )
         if (monthFilter) {
           const mIdx = Number(monthFilter) - 1
-          monthlyPct = monthlyPct.map((v, i) => i === mIdx ? v : 0)
+          monthlyPct = monthlyPct.map((v, i) => i === mIdx ? v : null)
         }
         rows.push({
           code: '',
           name: 'คิดเป็น%',
           type: 'pct-row',
-          pctValue: `${pctVal}%`,
+          id: block.id,
+          pctValue: pctVal === null ? '—' : `${pctVal}%`,
           monthlyPct,
         })
       } else if (block.id === 'cogs-pct-check') {
-        const pctVal = totalRevSum > 0 ? Number((((totalRevSum - cogsTotal) / totalRevSum) * 100).toFixed(2)) : 100
+        const pctVal = totalRevSum !== 0 ? Number((((totalRevSum - cogsTotal) / totalRevSum) * 100).toFixed(2)) : null
         // Monthly GrossProfit% = (Revenue_month - COGS_month) / Revenue_month * 100
         let monthlyPct = totalRevMonthly.map((rev, i) =>
-          rev > 0 ? Number((((rev - cogsMonthly[i]) / rev) * 100).toFixed(2)) : 0
+          rev !== 0 ? Number((((rev - cogsMonthly[i]) / rev) * 100).toFixed(2)) : null
         )
         if (monthFilter) {
           const mIdx = Number(monthFilter) - 1
-          monthlyPct = monthlyPct.map((v, i) => i === mIdx ? v : 0)
+          monthlyPct = monthlyPct.map((v, i) => i === mIdx ? v : null)
         }
         rows.push({
           code: '',
           name: 'คิดเป็น%',
           type: 'pct-row',
-          pctValue: `${pctVal}%`,
+          id: block.id,
+          pctValue: pctVal === null ? '—' : `${pctVal}%`,
           monthlyPct,
         })
       }
     } else if (block.type === 'cogs-row') {
       addRow({
+        id: block.id,
         code: '',
         name: 'ต้นทุนสินค้า',
         type: 'cogs-row',
@@ -721,12 +727,12 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
       })
 
       const catSum = subGroupMonthly.reduce((a, b) => a + b, 0)
-      const catPct = totalRevSum > 0 ? Number(((catSum / totalRevSum) * 100).toFixed(2)) : 0
+      const catPct = totalRevSum !== 0 ? Number(((catSum / totalRevSum) * 100).toFixed(2)) : null
 
       // Add Category Header Row
       rows.push({
         type: 'category-header',
-        title: `${block.title} (${catPct}%)`,
+        title: `${block.title} (${catPct === null ? '—' : `${catPct}%`})`,
         catNum: block.catNum,
       })
 
@@ -765,12 +771,12 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
         extra.monthly.forEach((v, i) => { catTotalMonthly[i] += v })
       })
       const catTotalSum = catTotalMonthly.reduce((a, b) => a + b, 0)
-      const catPct = totalRevSum > 0 ? Number(((catTotalSum / totalRevSum) * 100).toFixed(2)) : 0
+      const catPct = totalRevSum !== 0 ? Number(((catTotalSum / totalRevSum) * 100).toFixed(2)) : null
 
       // Add Main Category Header
       rows.push({
         type: 'category-header',
-        title: `${block.title} (${catPct}%)`,
+        title: `${block.title} (${catPct === null ? '—' : `${catPct}%`})`,
         catNum: block.catNum,
       })
 
@@ -903,8 +909,8 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
       })
 
       const catSum = subGroupMonthly.reduce((a, b) => a + b, 0)
-      const catPct = totalRevSum > 0 ? Number(((catSum / totalRevSum) * 100).toFixed(2)) : 0
-      rows.push({ type: 'category-header', title: `${block.title} (${catPct}%)`, catNum: block.catNum })
+      const catPct = totalRevSum !== 0 ? Number(((catSum / totalRevSum) * 100).toFixed(2)) : null
+      rows.push({ type: 'category-header', title: `${block.title} (${catPct === null ? '—' : `${catPct}%`})`, catNum: block.catNum })
       catItemRows.forEach((r) => addRow(r))
       addRow({
         code: '',
@@ -921,20 +927,21 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
   }
 
   // Section 4 summary formulas
-  const totalExpPct = totalRevSum > 0 ? Number(((grandTotalExpSum / totalRevSum) * 100).toFixed(2)) : 0
+  const totalExpPct = totalRevSum !== 0 ? Number(((grandTotalExpSum / totalRevSum) * 100).toFixed(2)) : null
   // Monthly TotalExp% = TotalExp_month / Revenue_month * 100
   let totalExpMonthlyPct = totalRevMonthly.map((rev, i) =>
-    rev > 0 ? Number(((grandTotalExpMonthly[i] / rev) * 100).toFixed(2)) : 0
+    rev !== 0 ? Number(((grandTotalExpMonthly[i] / rev) * 100).toFixed(2)) : null
   )
   if (monthFilter) {
     const mIdx = Number(monthFilter) - 1
-    totalExpMonthlyPct = totalExpMonthlyPct.map((v, i) => i === mIdx ? v : 0)
+    totalExpMonthlyPct = totalExpMonthlyPct.map((v, i) => i === mIdx ? v : null)
   }
   rows.push({
     code: '',
     name: 'คิดเป็น%',
     type: 'pct-row',
-    pctValue: `${totalExpPct}%`,
+    id: 'total-exp-pct',
+    pctValue: totalExpPct === null ? '—' : `${totalExpPct}%`,
     monthlyPct: totalExpMonthlyPct,
   })
 
@@ -974,14 +981,14 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
   const unmatchedAccounts = []
 
   accountMap.forEach((acc, code) => {
-    if (acc.total !== 0) {
+    if (acc.monthly.some(v => v !== 0)) {
       const isMapped = usedAccountCodes.has(code)
       const userMapping = customMappings[code] || 'auto'
 
       const accInfo = {
         code,
         name: acc.name,
-        total: acc.total,
+        total: acc.monthly.reduce((a, b) => a + b, 0),
         monthly: acc.monthly,
         isMapped,
         isCogs: detectedCogsCodes.includes(code),
@@ -1003,6 +1010,8 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     cogsTotal,
     cogsMonthly,
     grossProfitTotal,
+    grandTotalExpMonthly,
+    netProfitMonthly,
     grandTotalExpSum,
     netProfitTotal: grossProfitTotal - grandTotalExpSum,
     rows,

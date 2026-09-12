@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import { THAI_MONTHS } from '../lib/constants'
+import { buildExecutivePivotData } from '../lib/executiveReportPivot'
 
 function formatBaht(n) {
   return (n ?? 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -33,11 +34,11 @@ function AlertBadge({ pct }) {
   return <span className="doc-badge bg-sage-pale text-sage border-sage/30">🟢 ปกติ ({pct.toFixed(1)}%)</span>
 }
 
-// กล่องแสดงกลุ่มรหัสบัญชีพร้อม % Attribution Rate, % ของรวม, และ Drill-down
-function GroupBlock({ group, grandTotal, netRevenue, onInspect, isCollapsed, onToggleCollapse }) {
+// กล่องแสดงกลุ่มรหัสบัญชีพร้อม % ของรายได้สุทธิ, % ของรวม, และ Drill-down
+function GroupBlock({ group, grandTotal, netRevenue, onInspect, isCollapsed, onToggleCollapse, selectedMonth }) {
   const pctOfTotal = grandTotal > 0 ? ((group.total / grandTotal) * 100).toFixed(1) : '0.0'
   const attributionRate = netRevenue > 0 ? ((group.total / netRevenue) * 100).toFixed(2) : null
-  const avgMonthly = (group.total / 12).toFixed(0)
+  const avgMonthly = group.total / (selectedMonth ? 1 : 12)
 
   return (
     <div className="glass p-4 transition-all hover:border-gold/30 rounded-2xl shadow-sm">
@@ -55,13 +56,13 @@ function GroupBlock({ group, grandTotal, netRevenue, onInspect, isCollapsed, onT
             </span>
           )}
           <span className="text-[11px] bg-ink-100 text-ink-700 px-2 py-0.5 rounded-full font-medium">
-            {group.accounts.length} รหัส ({pctOfTotal}% ของรายจ่าย)
+            {group.accounts.length} รหัส ({pctOfTotal}% ของยอดรวมกลุ่ม)
           </span>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
             <span className="text-gold-dark font-display italic text-base font-semibold block">{formatBaht(group.total)}</span>
-            <span className="text-[10px] text-ink-400 font-normal">เฉลี่ยเดือนละ ~{formatBaht(Number(avgMonthly))}</span>
+            <span className="text-[10px] text-ink-400 font-normal">{selectedMonth ? 'ยอดเดือนที่เลือก' : 'เฉลี่ยต่อเดือน (หาร 12)'} {formatBaht(avgMonthly)}</span>
           </div>
           {onInspect && (
             <button
@@ -146,37 +147,69 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
   const [drillLoading, setDrillLoading] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
+  const dashRequest = useRef(0)
   const canDash = hasPagePermission(currentUser, 'exec-dashboard')
   const canRpt  = hasPagePermission(currentUser, 'exec-report')
 
   // โหลด P&L ภาพรวม
   const loadDash = useCallback(async () => {
+    const version = ++dashRequest.current
     setDashLoading(true)
+    setDashData(null)
     setDashError('')
-    const { data: res, error: err } = await supabase.rpc('get_executive_dashboard', {
-      p_actor_id: currentUser?.id ?? null, p_year: dashYear,
-    })
-    setDashLoading(false)
-    if (err) return setDashError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!res.success) return setDashError(res.message)
-    setDashData(res)
-    setLastRefreshed(new Date())
-  }, [currentUser, dashYear])
+    try {
+      const [dashboard, report] = await Promise.all([
+        supabase.rpc('get_executive_dashboard', { p_actor_id: currentUser?.id ?? null, p_year: dashYear }),
+        canRpt ? supabase.rpc('get_executive_monthly_report', { p_actor_id: currentUser?.id ?? null, p_year: dashYear }) : Promise.resolve(null),
+      ])
+      if (version !== dashRequest.current) return
+      if (dashboard.error || !dashboard.data?.success) throw new Error(dashboard.error?.message || dashboard.data?.message || 'โหลดข้อมูลไม่สำเร็จ')
+      const res = dashboard.data
+      let corrected
+      if (canRpt) {
+        if (report.error || !report.data?.success) throw new Error('ไม่สามารถตรวจสอบยอดกับรายงานผู้บริหารได้ กรุณารีเฟรช')
+        let mappings = {}
+        try { mappings = JSON.parse(localStorage.getItem(`gocost_pivot_custom_mappings_${dashYear}`) || '{}') } catch { /* Use the standard mapping. */ }
+        const pivot = buildExecutivePivotData(report.data, dashYear, '', mappings)
+        corrected = { ...res, totalRevenue: pivot.totalRevSum, totalCogs: pivot.cogsTotal, grossProfit: pivot.grossProfitTotal, totalExpenses: pivot.grandTotalExpSum, netProfit: pivot.netProfitTotal }
+      } else {
+        const costs = (res.byCategory || []).filter(row => /ต้นทุนขาย|ต้นทุนผลิต|ต้นทุนสินค้า/.test(row.category))
+        const cogs = costs.reduce((sum, row) => sum + Number(row.actual || 0), 0)
+        corrected = { ...res, totalCogs: cogs, grossProfit: res.totalRevenue - cogs, totalExpenses: res.totalExpenses - cogs, netProfit: res.totalRevenue - res.totalExpenses }
+      }
+      for (const [key, value] of [['cogsPct', corrected.totalCogs], ['grossProfitPct', corrected.grossProfit], ['expensePct', corrected.totalExpenses], ['netProfitPct', corrected.netProfit]]) {
+        corrected[key] = corrected.totalRevenue !== 0 ? (value / corrected.totalRevenue * 100).toFixed(2) : null
+      }
+      setDashData(corrected)
+      setLastRefreshed(new Date())
+    } catch (error) {
+      if (version === dashRequest.current) setDashError(error.message)
+    } finally {
+      if (version === dashRequest.current) setDashLoading(false)
+    }
+  }, [currentUser?.id, dashYear, canRpt])
 
   // โหลดรายละเอียดตามกลุ่มรหัสบัญชี
   const loadRpt = useCallback(async () => {
     if (!canRpt) return
     setRptLoading(true)
     setRptError('')
-    const { data: res, error: err } = await supabase.rpc('get_executive_itemized_report', {
-      p_actor_id: currentUser?.id ?? null,
-      p_year:  rptYear,
-      p_month: rptMonth ? Number(rptMonth) : null,
-    })
+    const [itemized, monthly] = await Promise.all([
+      supabase.rpc('get_executive_itemized_report', {
+        p_actor_id: currentUser?.id ?? null,
+        p_year: rptYear,
+        p_month: rptMonth ? Number(rptMonth) : null,
+      }),
+      supabase.rpc('get_executive_monthly_report', { p_actor_id: currentUser?.id ?? null, p_year: rptYear }),
+    ])
+    const { data: res, error: err } = itemized
     setRptLoading(false)
     if (err) return setRptError('เกิดข้อผิดพลาด: ' + err.message)
     if (!res.success) return setRptError(res.message)
-    setRptData(res)
+    let mappings = {}
+    try { mappings = JSON.parse(localStorage.getItem(`gocost_pivot_custom_mappings_${rptYear}`) || '{}') } catch { /* Use standard mapping. */ }
+    const netRevenue = !monthly.error && monthly.data?.success ? buildExecutivePivotData(monthly.data, rptYear, rptMonth, mappings).totalRevSum : null
+    setRptData({ ...res, netRevenue })
   }, [currentUser, rptYear, rptMonth, canRpt])
 
   useEffect(() => { if (canDash) loadDash() }, [canDash, loadDash])
@@ -284,10 +317,10 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
                 sub={dashData.grossProfitPct ? `${dashData.grossProfitPct}% ของรายได้` : '-'}
               />
               <StatCard
-                label="ค่าใช้จ่ายทั้งหมด"
+                label="ค่าใช้จ่ายดำเนินงาน (ไม่รวม COGS)"
                 value={formatBaht(dashData.totalExpenses)}
                 accent="text-rose"
-                sub={dashData.expensePct ? `${dashData.expensePct}% Attribution Rate` : '-'}
+                sub={dashData.expensePct ? `${dashData.expensePct}% ของรายได้สุทธิ` : '-'}
               />
               <StatCard
                 label={isProfit ? 'กำไรสุทธิ (ประมาณการ)' : 'ขาดทุนสุทธิ (ประมาณการ)'}
@@ -343,8 +376,8 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
                     <tr><td colSpan={6} className="px-4 py-8 text-center text-ink-400">ยังไม่มีข้อมูล</td></tr>
                   )}
                   {(dashData.byCategory ?? []).map((c) => {
-                    const totalExp = dashData.totalExpenses > 0 ? dashData.totalExpenses : 1
-                    const sharePct = ((c.actual / totalExp) * 100).toFixed(1)
+                    const totalExp = (dashData.byCategory || []).reduce((sum, row) => sum + Number(row.actual || 0), 0)
+                    const sharePct = totalExp !== 0 ? ((c.actual / totalExp) * 100).toFixed(1) : '—'
                     return (
                       <tr key={c.category} className="border-b border-black/5 last:border-0 hover:bg-black/[0.01]">
                         <td className="px-4 py-3 text-ink-900 font-medium">
@@ -353,7 +386,7 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
                         </td>
                         <td className="px-4 py-3 text-ink-700">{c.budget > 0 ? formatBaht(c.budget) : <span className="text-ink-400">ยังไม่ได้ตั้งงบ</span>}</td>
                         <td className="px-4 py-3 text-ink-700 font-medium">{formatBaht(c.actual)}</td>
-                        <td className={`px-4 py-3 ${c.remaining < 0 ? 'text-rose font-medium' : 'text-ink-700'}`}>{formatBaht(c.remaining)}</td>
+                        <td className={`px-4 py-3 ${c.remaining < 0 ? 'text-rose font-medium' : 'text-ink-700'}`}>{c.budget > 0 ? formatBaht(c.remaining) : '—'}</td>
                         <td className={`px-4 py-3 ${utilizationColor(c.pctUsed)}`}>
                           {c.pctUsed === null ? '-' : `${c.pctUsed}%`}
                         </td>
@@ -440,21 +473,22 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
             <div className="glass p-4 flex items-center justify-between">
               <div>
                 <p className="text-ink-600 text-sm font-medium">
-                  ยอดรวมรายจ่ายทั้งหมด{rptMonth ? ` ${THAI_MONTHS[Number(rptMonth) - 1]}` : ''} {rptYear}
+                  ยอดรวมทุกกลุ่มรหัสบัญชี{rptMonth ? ` ${THAI_MONTHS[Number(rptMonth) - 1]}` : ''} {rptYear}
                 </p>
                 <p className="text-xs text-ink-400 mt-0.5">รวมทุกกลุ่มรหัสบัญชีที่มีข้อมูลในระบบ</p>
               </div>
               <p className="font-display italic text-3xl text-gold-dark font-bold">{formatBaht(rptData.grandTotal)}</p>
             </div>
 
-            {/* กลุ่มรหัสบัญชีจากหน้า "กลุ่มรหัสบัญชี" พร้อม % รวม และ % Attribution Rate */}
+            {/* กลุ่มรหัสบัญชีจากหน้า "กลุ่มรหัสบัญชี" พร้อม % รวม และ % ของรายได้สุทธิ */}
             {rptData.groups?.length > 0
               ? rptData.groups.map((g) => (
                   <GroupBlock
                     key={g.groupId}
                     group={g}
                     grandTotal={rptData.grandTotal}
-                    netRevenue={dashData?.totalRevenue ?? 0}
+                    selectedMonth={rptMonth}
+                    netRevenue={rptData.netRevenue}
                     onInspect={handleInspectGroup}
                     isCollapsed={Boolean(collapsedRptGroups[g.groupId])}
                     onToggleCollapse={() => toggleRptGroup(g.groupId)}

@@ -1,0 +1,43 @@
+-- Run inside BEGIN / ROLLBACK. No test records or notifications are committed.
+do $$
+declare actor text; account bigint; store bigint; result jsonb; again jsonb; request uuid:=gen_random_uuid(); doc text; edit_id text; plan text; payload jsonb; snapshot jsonb;
+begin
+ select id into actor from users where role='ADMIN' order by id limit 1;
+ select id into account from accounts order by id limit 1;
+ select id into store from stores order by id limit 1;
+ if actor is null or account is null or store is null then raise exception 'Test prerequisites missing'; end if;
+ payload:=jsonb_build_array(jsonb_build_object('mainCategory','ค่าใช้จ่าย Workshop','detail','ค่าที่พัก','qty','3','unit','คืน','unitPrice','0.335','accountId',account,'attachmentUrl','expenses/test/receipt.pdf'),jsonb_build_object('mainCategory','รายได้','detail','ยอดขายดันเข้าสินค้า','qty','1','unitPrice','2.00','accountId',account));
+ result:=save_expense_document_v2('QA TRANSACTION ROLLBACK',current_date,10,1,'rollback test',actor,payload,request);
+ if result->>'success'<>'true' then raise exception 'Save failed: %',result; end if;
+ doc:=result->>'docNo';
+ if (select sum(total) from expense_records where doc_number=doc)<>3.01 then raise exception 'Incorrect numeric rounding'; end if;
+ again:=save_expense_document_v2('QA TRANSACTION ROLLBACK',current_date,10,1,'rollback test',actor,payload,request);
+ if again->>'docNo'<>doc or (select count(*) from expense_records where doc_number=doc)<>2 then raise exception 'Retry duplicated document'; end if;
+ snapshot:=get_operational_report(actor);
+ if not exists(select 1 from jsonb_array_elements(snapshot->'expenses') e where e->>'doc_number'=doc) then raise exception 'Saved rows not readable in report'; end if;
+ result:=request_edit_record(doc,jsonb_build_object('storeName','QA EDIT ROLLBACK','eventDate',current_date,'attendees',10,'workDays',1,'items',payload),actor);
+ edit_id:=result->>'editId';
+ result:=approve_edit_record(edit_id,actor);
+ if result->>'success'<>'true' then raise exception 'Edit approval failed: %',result; end if;
+ if (select attachment_url from expense_records where doc_number=doc and seq=1)<>'expenses/test/receipt.pdf' or (select created_by from expense_records where doc_number=doc and seq=1)<>actor then raise exception 'Metadata lost on edit'; end if;
+ result:=request_delete_record(doc,actor);
+ result:=approve_delete_record(result->>'editId',actor);
+ if result->>'success'<>'true' or exists(select 1 from expense_records where doc_number=doc) then raise exception 'Delete approval failed'; end if;
+ if not exists(select 1 from operational_document_archive where doc_number=doc) then raise exception 'Deleted archive missing'; end if;
+ if generate_document_number()=doc then raise exception 'Deleted number reused'; end if;
+ result:=create_workshop_plan(store,current_date,actor);plan:=result->>'planId';
+ if result->>'success'<>'true' then raise exception 'Workshop create failed: %',result; end if;
+ result:=approve_workshop_plan(plan,actor);
+ if result->>'success'<>'true' then raise exception 'Workshop approval failed: %',result; end if;
+ result:=submit_workshop_sales_data(plan,10,100,200,'workshop/test.pdf',actor);
+ if result->>'success'<>'true' then raise exception 'Workshop sales save failed: %',result; end if;
+ if (select status from workshop_plans where id=plan)<>'completed' then raise exception 'Workshop status incorrect'; end if;
+ result:=update_workshop_plan_request(plan,store,current_date,actor);
+ if result->>'success'<>'true' then raise exception 'Workshop request edit failed'; end if;
+ result:=update_workshop_sales_data(plan,12,150,250,null,actor);
+ if result->>'success'<>'true' then raise exception 'Workshop sales edit failed'; end if;
+ result:=delete_workshop_plan(plan,actor);
+ if result->>'success'<>'true' or not exists(select 1 from operational_document_archive where doc_number=plan) then raise exception 'Workshop delete failed'; end if;
+ if generate_workshop_doc_number()=plan then raise exception 'Deleted Workshop number reused'; end if;
+end; $$;
+select 'PASS: expense save/read/retry/rounding/edit/attachment preservation/delete/archive; Workshop create/approve/sales/edit/delete; number reuse protection' as test_result;

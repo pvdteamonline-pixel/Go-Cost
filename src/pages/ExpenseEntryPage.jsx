@@ -1,13 +1,15 @@
 import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { expenseSummary, baht, lineSatang } from '../lib/expenseSummary'
+import { uploadExpenseAttachment } from '../lib/expenseAttachments'
 import { MAIN_CATEGORIES, DETAILS } from '../lib/constants'
 
 function emptyItem() {
   return { mainCategory: '', detail: '', qty: '', unit: '', unitPrice: '', remark: '', accountId: '' }
 }
 
-export default function ExpenseEntryPage() {
+export default function ExpenseEntryPage({onNavigate}) {
   const { currentUser } = useAuth()
   const [storeName, setStoreName] = useState('')
   const [eventDate, setEventDate] = useState('')
@@ -22,17 +24,16 @@ export default function ExpenseEntryPage() {
 
   useEffect(() => {
     supabase.rpc('list_accounts_for_selection', { p_actor_id: currentUser?.id ?? null }).then(({ data, error: err }) => {
-      if (!err) setAccountOptions(data ?? [])
+      if (err) setError('โหลดรหัสบัญชีไม่สำเร็จ: ' + err.message)
+      else setAccountOptions(data ?? [])
     })
   }, [currentUser])
 
-  const grandTotal = useMemo(() => {
-    return items.reduce((sum, it) => {
-      const q = parseFloat(it.qty) || 0
-      const p = parseFloat(it.unitPrice) || 0
-      return sum + q * p
-    }, 0)
-  }, [items])
+  const totals = useMemo(() => expenseSummary(items), [items])
+  const [file, setFile] = useState(null)
+  const [attachmentPath, setAttachmentPath] = useState(null)
+  const [formKey, setFormKey] = useState(0)
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
 
   function updateItem(index, field, value) {
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, [field]: value } : it)))
@@ -50,6 +51,7 @@ export default function ExpenseEntryPage() {
   // การตรวจสอบจริงที่ "บังคับใช้" คือฝั่ง RPC save_expense_record ใน Postgres เสมอ
   function validateClientSide() {
     if (!storeName.trim()) return 'กรุณากรอกชื่อร้านค้า / ชื่องาน'
+    if (![attendees || '0', workDays || '0'].every(v => Number.isInteger(Number(v)) && Number(v) >= 0)) return 'จำนวนผู้เข้างานและวันทำงานต้องเป็นจำนวนเต็มไม่ติดลบ'
     if (!eventDate) return 'กรุณาเลือกวันที่จัดงาน'
     if (items.length === 0) return 'กรุณาเพิ่มรายการอย่างน้อย 1 รายการ'
     for (let i = 0; i < items.length; i++) {
@@ -59,8 +61,8 @@ export default function ExpenseEntryPage() {
       if (!it.accountId) return `รายการที่ ${i + 1}: กรุณาเลือกรหัสบัญชี`
       const qty = parseFloat(it.qty)
       const unitPrice = parseFloat(it.unitPrice)
-      if (isNaN(qty) || qty <= 0) return `รายการที่ ${i + 1}: จำนวนต้องมากกว่า 0`
-      if (isNaN(unitPrice) || unitPrice < 0) return `รายการที่ ${i + 1}: ราคาต่อหน่วยไม่ถูกต้อง`
+      if (!Number.isFinite(qty) || qty <= 0 || !/^\d+(\.\d+)?$/.test(it.qty)) return `รายการที่ ${i + 1}: จำนวนต้องมากกว่า 0 และใช้รูปแบบตัวเลขปกติ`
+      if (!Number.isFinite(unitPrice) || unitPrice < 0 || !/^\d+(\.\d+)?$/.test(it.unitPrice)) return `รายการที่ ${i + 1}: ราคาต่อหน่วยไม่ถูกต้อง`
     }
     return null
   }
@@ -74,23 +76,28 @@ export default function ExpenseEntryPage() {
       setError(clientError)
       return
     }
+    if (submitting) return
     setSubmitting(true)
-    const { data, error: rpcError } = await supabase.rpc('save_expense_record', {
+    try {
+    const path = attachmentPath || await uploadExpenseAttachment(file)
+    if (path) setAttachmentPath(path)
+    const { data, error: rpcError } = await supabase.rpc('save_expense_document_v2', {
       p_store_name: storeName,
       p_event_date: eventDate,
       p_attendees: attendees ? parseInt(attendees, 10) : 0,
       p_work_days: workDays ? parseInt(workDays, 10) : 0,
       p_internal_note: internalNote,
       p_created_by: currentUser?.id ?? null,
-      p_items: items,
+      p_items: items.map(it => ({...it, attachmentUrl: path})),
+      p_request_id: requestId,
     })
     setSubmitting(false)
     if (rpcError) {
       setError('เกิดข้อผิดพลาด: ' + rpcError.message)
       return
     }
-    if (!data.success) {
-      setError(data.message)
+    if (!data?.success) {
+      setError(data?.message || 'ไม่ได้รับผลยืนยันการบันทึก กรุณาลองอีกครั้ง')
       return
     }
     setSuccess(data)
@@ -100,6 +107,8 @@ export default function ExpenseEntryPage() {
     setWorkDays('')
     setInternalNote('')
     setItems([emptyItem()])
+    setFile(null); setAttachmentPath(null); setFormKey(k=>k+1); setRequestId(crypto.randomUUID())
+    } catch (err) { setError('บันทึกไม่สำเร็จ: ' + err.message) } finally { setSubmitting(false) }
   }
 
   return (
@@ -112,11 +121,11 @@ export default function ExpenseEntryPage() {
       {success && (
         <div className="glass p-4 flex items-center gap-3 border-sage/30">
           <span className="doc-badge">{success.docNo}</span>
-          <p className="text-sage text-sm">{success.message} — บันทึก {success.rowsSaved} รายการ</p>
+          <p className="text-sage text-sm">{success.message} — บันทึก {success.rowsSaved} รายการ</p><button type="button" className="btn-ghost" onClick={()=>onNavigate("expense-report")}>ดูรายงาน</button><button type="button" className="btn-ghost" onClick={()=>onNavigate("expense-history")}>ดูประวัติ</button>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form key={formKey} onSubmit={handleSubmit} className="space-y-6">
         <div className="glass p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
             <label className="block text-xs text-ink-600 mb-1.5">ชื่อร้านค้า / ชื่องาน *</label>
@@ -140,6 +149,7 @@ export default function ExpenseEntryPage() {
           </div>
         </div>
 
+        <div className="glass p-4"><label className="block text-sm mb-2">ไฟล์แนบ (ไม่เกิน 10 MB)<input aria-label="ไฟล์แนบค่าใช้จ่าย" type="file" className="glass-input w-full mt-2" onChange={e=>{const f=e.target.files?.[0];if(f?.size>10*1024*1024){setError('ไฟล์แนบต้องไม่เกิน 10 MB');e.target.value='';setFile(null)}else{setFile(f??null);setError('')}setAttachmentPath(null)}}/></label></div>
         <div className="glass p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-ink-900 font-medium">รายการค่าใช้จ่าย</h2>
@@ -187,7 +197,7 @@ export default function ExpenseEntryPage() {
               </div>
               <div className="sm:col-span-1 flex items-end justify-between">
                 <span className="text-gold-dark text-sm">
-                  = {((parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  = {(lineSatang(it.qty,it.unitPrice)/100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                 </span>
                 {items.length > 1 && (
                   <button type="button" onClick={() => removeItem(i)} className="text-rose text-xs hover:underline">ลบ</button>
@@ -198,13 +208,14 @@ export default function ExpenseEntryPage() {
 
           <div className="flex justify-end pt-2 border-t border-black/10">
             <p className="text-ink-900">
-              รวมทั้งสิ้น: <span className="font-display italic text-gold-dark text-xl ml-2">
-                {grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+              ค่าใช้จ่าย: <span className="font-display italic text-gold-dark text-xl ml-2">
+                {baht(totals.expense)}
               </span>
             </p>
           </div>
         </div>
 
+        <div className="grid grid-cols-3 gap-3">{[['รายได้บริษัท',totals.income],['ส่วนต่างสุทธิ',totals.net],['ยอดขาย Workshop ของร้าน',totals.storeSales]].map(([label,value])=><div className="glass p-3" key={label}><p className="text-xs">{label}</p><strong>{baht(value)}</strong></div>)}</div>
         {error && (
           <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>
         )}

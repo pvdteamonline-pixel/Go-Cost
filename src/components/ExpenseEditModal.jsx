@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { lineSatang } from '../lib/expenseSummary'
 import { MAIN_CATEGORIES, DETAILS } from '../lib/constants'
 
 export default function ExpenseEditModal({ doc, onClose, onSubmitted }) {
@@ -13,6 +14,8 @@ export default function ExpenseEditModal({ doc, onClose, onSubmitted }) {
   const [items, setItems] = useState(doc.items.map((it) => ({
     mainCategory: it.mainCategory, detail: it.detail,
     qty: String(it.qty), unit: it.unit ?? '', unitPrice: String(it.unitPrice), remark: it.remark ?? '',
+    allowUnmapped: !it.accountId,
+    attachmentUrl: it.attachmentUrl ?? it.attachment_url ?? null,
     accountId: it.accountId ? String(it.accountId) : '',
   })))
   const [accountOptions, setAccountOptions] = useState([])
@@ -28,7 +31,7 @@ export default function ExpenseEditModal({ doc, onClose, onSubmitted }) {
   const grandTotal = useMemo(() => items.reduce((sum, it) => {
     const q = parseFloat(it.qty) || 0
     const p = parseFloat(it.unitPrice) || 0
-    return sum + q * p
+    return sum + lineSatang(q,p)/100
   }, 0), [items])
 
   function updateItem(index, field, value) {
@@ -50,7 +53,7 @@ export default function ExpenseEditModal({ doc, onClose, onSubmitted }) {
       const it = items[i]
       if (!it.mainCategory.trim()) return setError(`รายการที่ ${i + 1}: กรุณาเลือกหมวดหมู่หลัก`)
       if (!it.detail.trim()) return setError(`รายการที่ ${i + 1}: กรุณาเลือกรายละเอียด`)
-      if (!it.accountId) return setError(`รายการที่ ${i + 1}: กรุณาเลือกรหัสบัญชี`)
+      if (!it.accountId && !it.allowUnmapped) return setError(`รายการที่ ${i + 1}: กรุณาเลือกรหัสบัญชี`)
       const qty = parseFloat(it.qty)
       const unitPrice = parseFloat(it.unitPrice)
       if (isNaN(qty) || qty <= 0) return setError(`รายการที่ ${i + 1}: จำนวนต้องมากกว่า 0`)
