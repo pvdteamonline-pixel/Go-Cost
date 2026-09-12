@@ -142,18 +142,38 @@ returns jsonb
 language plpgsql
 security definer
 as $$
+declare
+  v_code text;
+  v_name text;
 begin
   if not has_page_permission(p_actor_id, 'accounts') then
     return jsonb_build_object('success', false, 'message', 'คุณไม่มีสิทธิ์ลบรหัสบัญชี');
   end if;
 
-  delete from accounts where id = p_id;
-  if not found then
+  select code, name into v_code, v_name from accounts where id = p_id;
+  if v_code is null then
     return jsonb_build_object('success', false, 'message', 'ไม่พบรหัสบัญชีนี้');
   end if;
 
-  perform write_audit_log(p_actor_id, 'DELETE_ACCOUNT', 'Accounts', 'ลบรหัสบัญชี id: ' || p_id);
-  return jsonb_build_object('success', true, 'message', 'ลบรหัสบัญชีสำเร็จ');
+  -- ลบรายการนำเข้าที่ผูกกับรหัสนี้
+  delete from account_import_lines where account_id = p_id;
+
+  -- ลบการจัดกลุ่มแยก (splits)
+  delete from account_group_splits where account_id = p_id;
+
+  -- ลบงบประมาณที่ผูกกับรหัสนี้
+  delete from account_budgets where account_id = p_id;
+
+  -- ปลด account_id ในรายการรายจ่ายประวัติ (ไม่ให้กระทบประวัติรายจ่าย)
+  update expense_records set account_id = null where account_id = p_id;
+
+  -- ลบรหัสบัญชีจริง
+  delete from accounts where id = p_id;
+
+  perform write_audit_log(p_actor_id, 'DELETE_ACCOUNT', 'Accounts',
+    format('ลบรหัสบัญชี id: %s (%s — %s)', p_id, v_code, coalesce(v_name, '')));
+
+  return jsonb_build_object('success', true, 'message', format('ลบรหัสบัญชี %s สำเร็จ', v_code));
 end;
 $$;
 
