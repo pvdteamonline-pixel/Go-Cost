@@ -490,7 +490,7 @@ function PreviewModal({ fileType, parsedRows, checkResult, year, month, currentU
 
 // ─── แปลงชีตดิบเป็นรายการ {code, month, amount, description} สำหรับไฟล์ "ประมาณการกำไรขาดทุน" ───
 // ⚠️ ใช้ normalizeCodeCell เสมอ เพราะ Excel แปลงรหัสรูปแบบ "NNNN-NN" เป็นวันที่โดยอัตโนมัติ
-function parsePlEstimateSheet(sheetRows) {
+function parsePlEstimateSheet(sheetRows, workbook = null) {
   const headerIdx = findHeaderRow(sheetRows, ['รหัสบัญชี', 'ชื่อบัญชี'])
   if (headerIdx === -1) return { rows: [], error: 'ไม่พบหัวตาราง "รหัสบัญชี" / "ชื่อบัญชี" ในชีตนี้' }
 
@@ -507,21 +507,61 @@ function parsePlEstimateSheet(sheetRows) {
 
   const results = []
   let lastCode = null
+  let foundCogsInMain = false
+
   for (let r = headerIdx + 1; r < sheetRows.length; r++) {
     const row = sheetRows[r] || []
-    const name = row[nameCol]
-    const code = normalizeCodeCell(row[codeCol], lastCode)
-    if (!code || !CODE_RE.test(code)) continue
-    lastCode = code
+    const name = row[nameCol] ? String(row[nameCol]).trim() : ''
+    let code = normalizeCodeCell(row[codeCol], lastCode)
+
+    // ตรวจจับแถว "ต้นทุนสินค้า" ที่ไม่มีรหัสบัญชี หรือรหัสไม่ตรง format
+    const isCogsRow = (/ต้นทุนสินค้า|ต้นทุนขาย|COGS/i.test(name) || /ต้นทุนสินค้า/i.test(String(row[codeCol] || ''))) &&
+      !['5130-04', '5130-06', '5130-07', '5130-12', '5130-08', '5130-02'].includes(code)
+
+    if (isCogsRow && (!code || !CODE_RE.test(code))) {
+      code = '5130-01' // ผูกเข้ากับรหัสต้นทุนสินค้า / ซื้อ มาตรฐาน
+      foundCogsInMain = true
+    } else {
+      if (!code || !CODE_RE.test(code)) continue
+      lastCode = code
+    }
 
     for (const { col, month } of monthCols) {
       const val = row[col]
       if (val === undefined || val === null || val === '') continue
       const amount = parseAccountingNumber(val)
       if (amount === 0 && String(val).trim() !== '0') continue
-      results.push({ code, month, amount, description: name ? String(name).trim() : '' })
+      results.push({ code, month, amount, description: name || 'ต้นทุนสินค้า' })
     }
   }
+
+  // หากในชีตหลักไม่พบแถวต้นทุนสินค้า และ workbook มีชีต "ต้นทุน" แยกต่างหาก
+  if (!foundCogsInMain && workbook && Array.isArray(workbook.SheetNames)) {
+    const costSheetName = workbook.SheetNames.find((n) => /ต้นทุน|cogs/i.test(n.trim()))
+    if (costSheetName && workbook.Sheets[costSheetName]) {
+      const cRows = XLSX.utils.sheet_to_json(workbook.Sheets[costSheetName], { header: 1, defval: null })
+      cRows.forEach((r) => {
+        if (!r || !r.length) return
+        const label = String(r[0] || '').trim()
+        const val = r[1]
+        if (val === undefined || val === null || val === '') return
+        const amount = parseAccountingNumber(val)
+        if (amount === 0) return
+
+        // จับคู่เดือน เช่น "ม.ค.69" -> 1
+        const mIdx = MONTH_ABBR.findIndex((abbr) => label.includes(abbr))
+        if (mIdx !== -1) {
+          results.push({
+            code: '5130-01',
+            month: mIdx + 1,
+            amount,
+            description: 'ต้นทุนสินค้า ' + label,
+          })
+        }
+      })
+    }
+  }
+
   return { rows: results, error: null }
 }
 
@@ -720,7 +760,7 @@ export default function AccountFileImportPage() {
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null })
 
     const { rows: parsed, error: parseErr } = fileType === 'pl_estimate'
-      ? parsePlEstimateSheet(rows)
+      ? parsePlEstimateSheet(rows, workbook)
       : parseTrialBalanceSheet(rows)
     if (parseErr) return setError(parseErr)
     if (parsed.length === 0) return setError('ไม่พบข้อมูลรายการในชีตนี้')

@@ -64,9 +64,12 @@ export default function ExecutiveReportPage({ onNavigate }) {
   const [customMappings, setCustomMappings] = useState({})
   const [showAuditModal, setShowAuditModal] = useState(false)
 
+  // State for user-added custom categories
+  const [customCategories, setCustomCategories] = useState([])
+
   const canUse = hasPagePermission(currentUser, 'exec-report')
 
-  // Load custom mappings from localStorage
+  // Load custom mappings and custom categories from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem(`gocost_pivot_custom_mappings_${year}`)
@@ -77,6 +80,16 @@ export default function ExecutiveReportPage({ onNavigate }) {
       }
     } catch {
       setCustomMappings({})
+    }
+    try {
+      const savedCats = localStorage.getItem(`gocost_pivot_custom_categories_${year}`)
+      if (savedCats) {
+        setCustomCategories(JSON.parse(savedCats))
+      } else {
+        setCustomCategories([])
+      }
+    } catch {
+      setCustomCategories([])
     }
   }, [year])
 
@@ -93,6 +106,22 @@ export default function ExecutiveReportPage({ onNavigate }) {
     })
   }
 
+  // Bulk update mappings for multiple codes at once
+  const handleBulkUpdateMapping = (codes, targetCategory) => {
+    setCustomMappings((prev) => {
+      const updated = { ...prev }
+      codes.forEach((code) => {
+        updated[code] = targetCategory
+      })
+      try {
+        localStorage.setItem(`gocost_pivot_custom_mappings_${year}`, JSON.stringify(updated))
+      } catch (err) {
+        console.error('Failed to save custom mappings:', err)
+      }
+      return updated
+    })
+  }
+
   const handleResetMappings = () => {
     setCustomMappings({})
     try {
@@ -100,6 +129,34 @@ export default function ExecutiveReportPage({ onNavigate }) {
     } catch (err) {
       console.error('Failed to reset custom mappings:', err)
     }
+  }
+
+  // Add a new custom category
+  const handleAddCustomCategory = (label) => {
+    const value = `custom_${Date.now()}`
+    setCustomCategories((prev) => {
+      const updated = [...prev, { value, label }]
+      try {
+        localStorage.setItem(`gocost_pivot_custom_categories_${year}`, JSON.stringify(updated))
+      } catch (err) {
+        console.error('Failed to save custom categories:', err)
+      }
+      return updated
+    })
+    return value
+  }
+
+  // Delete a custom category
+  const handleDeleteCustomCategory = (catValue) => {
+    setCustomCategories((prev) => {
+      const updated = prev.filter((c) => c.value !== catValue)
+      try {
+        localStorage.setItem(`gocost_pivot_custom_categories_${year}`, JSON.stringify(updated))
+      } catch (err) {
+        console.error('Failed to save custom categories:', err)
+      }
+      return updated
+    })
   }
 
   const load = useCallback(async () => {
@@ -293,16 +350,28 @@ export default function ExecutiveReportPage({ onNavigate }) {
                   }
 
                   if (r.type === 'pct-row') {
+                    const isYellowPct = r.id === 'cogs-pct-check'
                     return (
-                      <tr key={idx} className="border-b border-black/5 text-[11px] text-ink-400 italic">
+                      <tr
+                        key={idx}
+                        className={`border-b text-[11px] italic transition-colors ${
+                          isYellowPct
+                            ? 'bg-yellow-100/90 border-yellow-200 text-yellow-900 font-medium'
+                            : 'border-black/5 text-ink-500 bg-ink-50/30'
+                        }`}
+                      >
                         <td></td>
-                        <td className="py-1 px-2">{r.name}</td>
+                        <td className="py-1 px-2 font-medium">{r.name}</td>
                         {Array(12).fill(0).map((_, i) => (
-                          <td key={i}></td>
+                          <td key={i} className={`text-right py-1 px-1.5 tabular-nums ${isYellowPct ? 'text-yellow-900 font-semibold' : 'text-ink-500'}`}>
+                            {r.monthlyPct && r.monthlyPct[i] ? `${r.monthlyPct[i]}%` : ''}
+                          </td>
                         ))}
+                        <td className={`text-right py-1 px-2 font-bold tabular-nums ${isYellowPct ? 'text-yellow-950 bg-yellow-200/60' : 'text-ink-600 bg-ink-100/30'}`}>
+                          {r.pctValue || ''}
+                        </td>
                         <td></td>
                         <td></td>
-                        <td className="text-right py-1 px-2 font-medium text-ink-500 tabular-nums">{r.pctValue || ''}</td>
                       </tr>
                     )
                   }
@@ -333,14 +402,14 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
                   let rowStyle = 'border-b border-black/5 hover:bg-black/[0.015]'
                   if (isTotalRev) rowStyle = 'bg-sage-pale/60 font-bold border-y-2 border-sage/40 text-sage-dark'
-                  else if (isGrossProf) rowStyle = 'bg-emerald-50/90 font-bold border-y-2 border-emerald-300 text-emerald-900'
+                  else if (isGrossProf) rowStyle = 'bg-yellow-200/90 font-bold border-y-2 border-yellow-400 text-yellow-950'
                   else if (isTotalExp) rowStyle = 'bg-amber-50/90 font-bold border-y-2 border-amber-300 text-amber-900'
                   else if (isNetProf)
                     rowStyle = `font-bold text-sm border-y-2 ${
                       r.total >= 0 ? 'bg-blue-50/90 text-blue-900 border-blue-400' : 'bg-rose-50/90 text-rose-900 border-rose-400'
                     }`
                   else if (isSubtotal) rowStyle = 'bg-white/70 font-semibold border-b border-black/15 text-ink-900'
-                  else if (isCogs) rowStyle = 'bg-amber-100/60 font-bold border-y-2 border-amber-300 text-amber-950'
+                  else if (isCogs) rowStyle = 'bg-[#FCE4D6] font-bold border-y-2 border-[#D9B4A0] text-amber-950'
                   else if (isFormula) rowStyle = 'bg-ink-50/60 font-semibold text-ink-800'
 
                   return (
@@ -412,8 +481,12 @@ export default function ExecutiveReportPage({ onNavigate }) {
           pivotData={pivotData}
           year={year}
           customMappings={customMappings}
+          customCategories={customCategories}
           onUpdateMapping={handleUpdateMapping}
+          onBulkUpdateMapping={handleBulkUpdateMapping}
           onResetMappings={handleResetMappings}
+          onAddCustomCategory={handleAddCustomCategory}
+          onDeleteCustomCategory={handleDeleteCustomCategory}
           onClose={() => setShowAuditModal(false)}
         />
       )}
@@ -426,12 +499,25 @@ function AccountMappingAuditModal({
   pivotData,
   year,
   customMappings,
+  customCategories,
   onUpdateMapping,
+  onBulkUpdateMapping,
   onResetMappings,
+  onAddCustomCategory,
+  onDeleteCustomCategory,
   onClose,
 }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all') // 'all' | 'unmapped' | 'cogs'
+  const [selectedCodes, setSelectedCodes] = useState(new Set())
+  const [bulkCategory, setBulkCategory] = useState('')
+  const [showAddCategory, setShowAddCategory] = useState(false)
+  const [newCategoryLabel, setNewCategoryLabel] = useState('')
+
+  // All available category options (built-in + custom)
+  const allCategoryOptions = useMemo(() => {
+    return [...PIVOT_CATEGORY_OPTIONS, ...customCategories]
+  }, [customCategories])
 
   const filteredAccounts = useMemo(() => {
     const list = pivotData.allDetectedAccounts || []
@@ -444,9 +530,54 @@ function AccountMappingAuditModal({
     })
   }, [pivotData, filterType, searchTerm])
 
+  // Toggle single row checkbox
+  const toggleSelect = (code) => {
+    setSelectedCodes((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
+
+  // Select all / deselect all in current filtered view
+  const isAllSelected = filteredAccounts.length > 0 && filteredAccounts.every((a) => selectedCodes.has(a.code))
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedCodes((prev) => {
+        const next = new Set(prev)
+        filteredAccounts.forEach((a) => next.delete(a.code))
+        return next
+      })
+    } else {
+      setSelectedCodes((prev) => {
+        const next = new Set(prev)
+        filteredAccounts.forEach((a) => next.add(a.code))
+        return next
+      })
+    }
+  }
+
+  // Apply bulk category to all selected codes
+  const handleBulkApply = () => {
+    if (!bulkCategory || selectedCodes.size === 0) return
+    onBulkUpdateMapping([...selectedCodes], bulkCategory)
+    setSelectedCodes(new Set())
+    setBulkCategory('')
+  }
+
+  // Add new custom category
+  const handleAddCategory = () => {
+    const label = newCategoryLabel.trim()
+    if (!label) return
+    onAddCustomCategory(label)
+    setNewCategoryLabel('')
+    setShowAddCategory(false)
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="glass bg-white max-w-4xl w-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-black/10">
+      <div className="glass bg-white max-w-5xl w-full max-h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-black/10">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-black/10 flex items-center justify-between bg-gradient-to-r from-ocean/10 to-indigo-50">
           <div>
@@ -463,58 +594,158 @@ function AccountMappingAuditModal({
         </div>
 
         {/* Modal Controls */}
-        <div className="p-4 border-b border-black/10 bg-ink-50/50 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setFilterType('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                filterType === 'all' ? 'bg-ocean text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
-              }`}
-            >
-              ทั้งหมด ({pivotData.allDetectedAccounts?.length || 0})
-            </button>
-            <button
-              onClick={() => setFilterType('unmapped')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                filterType === 'unmapped' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
-              }`}
-            >
-              ⚠️ ยังไม่อยู่ใน Template ({pivotData.unmatchedAccounts?.length || 0})
-            </button>
-            <button
-              onClick={() => setFilterType('cogs')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                filterType === 'cogs' ? 'bg-amber-900 text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
-              }`}
-            >
-              📦 ต้นทุนสินค้า ({pivotData.cogsCodes?.length || 0})
-            </button>
+        <div className="px-4 pt-3 pb-2 border-b border-black/10 bg-ink-50/50 flex flex-col gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  filterType === 'all' ? 'bg-ocean text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
+                }`}
+              >
+                ทั้งหมด ({pivotData.allDetectedAccounts?.length || 0})
+              </button>
+              <button
+                onClick={() => setFilterType('unmapped')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  filterType === 'unmapped' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
+                }`}
+              >
+                ⚠️ ยังไม่อยู่ใน Template ({pivotData.unmatchedAccounts?.length || 0})
+              </button>
+              <button
+                onClick={() => setFilterType('cogs')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  filterType === 'cogs' ? 'bg-amber-900 text-white shadow-sm' : 'bg-white text-ink-700 hover:bg-black/5 border border-black/10'
+                }`}
+              >
+                📦 ต้นทุนสินค้า ({pivotData.cogsCodes?.length || 0})
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="ค้นหารหัส หรือ ชื่อบัญชี..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="glass-input text-xs w-52 px-3 py-1.5"
+              />
+              <button
+                onClick={() => setShowAddCategory((v) => !v)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-1"
+              >
+                ➕ เพิ่มหมวดหมู่ใหม่
+              </button>
+              {Object.keys(customMappings).length > 0 && (
+                <button
+                  onClick={onResetMappings}
+                  className="text-xs text-rose-600 hover:underline px-2 py-1"
+                >
+                  คืนค่าเริ่มต้น
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="ค้นหารหัส หรือ ชื่อบัญชี..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="glass-input text-xs w-56 px-3 py-1.5"
-            />
-            {Object.keys(customMappings).length > 0 && (
+          {/* Add New Category Panel */}
+          {showAddCategory && (
+            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+              <span className="text-xs font-medium text-emerald-800 whitespace-nowrap">ชื่อหมวดหมู่ใหม่:</span>
+              <input
+                type="text"
+                placeholder="เช่น ค่าใช้จ่ายพิเศษ, รายได้โปรเจค..."
+                value={newCategoryLabel}
+                onChange={(e) => setNewCategoryLabel(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+                className="flex-1 text-xs border border-emerald-300 rounded-lg px-3 py-1.5 focus:outline-none focus:border-emerald-500 bg-white"
+                autoFocus
+              />
               <button
-                onClick={onResetMappings}
-                className="text-xs text-rose-600 hover:underline px-2 py-1"
+                onClick={handleAddCategory}
+                disabled={!newCategoryLabel.trim()}
+                className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-all"
               >
-                คืนค่าเริ่มต้น
+                บันทึก
               </button>
-            )}
-          </div>
+              <button
+                onClick={() => { setShowAddCategory(false); setNewCategoryLabel('') }}
+                className="px-2 py-1.5 text-xs text-ink-500 hover:text-ink-900"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          )}
+
+          {/* Custom Categories List */}
+          {customCategories.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-ink-500 font-medium">หมวดหมู่ที่เพิ่มเอง:</span>
+              {customCategories.map((cat) => (
+                <span key={cat.value} className="flex items-center gap-1 bg-emerald-100 text-emerald-900 text-[11px] px-2 py-0.5 rounded-full font-medium">
+                  {cat.label}
+                  <button
+                    onClick={() => onDeleteCustomCategory(cat.value)}
+                    className="ml-0.5 text-emerald-600 hover:text-rose-600 font-bold leading-none"
+                    title="ลบหมวดหมู่นี้"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Bulk Action Bar */}
+          {selectedCodes.size > 0 && (
+            <div className="flex items-center gap-2 bg-ocean/10 border border-ocean/30 rounded-xl px-3 py-2">
+              <span className="text-xs font-semibold text-ocean whitespace-nowrap">
+                ✓ เลือก {selectedCodes.size} รหัส
+              </span>
+              <span className="text-ink-400 text-xs">→ เปลี่ยนหมวดหมู่ทั้งหมดเป็น:</span>
+              <select
+                value={bulkCategory}
+                onChange={(e) => setBulkCategory(e.target.value)}
+                className="flex-1 max-w-xs text-xs border border-ocean/40 rounded-lg px-2 py-1 bg-white font-medium text-ink-900 focus:border-ocean"
+              >
+                <option value="">-- เลือกหมวดหมู่ --</option>
+                {allCategoryOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleBulkApply}
+                disabled={!bulkCategory}
+                className="px-4 py-1.5 text-xs font-bold bg-ocean text-white rounded-lg hover:bg-ocean/90 disabled:opacity-40 transition-all shadow-sm whitespace-nowrap"
+              >
+                ✓ ใช้กับที่เลือก
+              </button>
+              <button
+                onClick={() => setSelectedCodes(new Set())}
+                className="text-xs text-ink-500 hover:text-ink-900 px-2 py-1"
+              >
+                ยกเลิกการเลือก
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Modal Body Table */}
-        <div className="p-4 overflow-y-auto flex-1">
+        <div className="px-4 pb-4 pt-2 overflow-y-auto flex-1">
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b-2 border-black/10 text-ink-700 font-bold bg-ink-100/60">
+                <th className="text-center py-2 px-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={toggleSelectAll}
+                    className="cursor-pointer accent-ocean w-3.5 h-3.5"
+                    title="เลือก/ยกเลิกทั้งหมด"
+                  />
+                </th>
                 <th className="text-left py-2 px-2 w-28">รหัสบัญชี</th>
                 <th className="text-left py-2 px-2">ชื่อบัญชี</th>
                 <th className="text-right py-2 px-2 w-32">ยอดรวมทั้งปี</th>
@@ -524,15 +755,30 @@ function AccountMappingAuditModal({
             <tbody>
               {filteredAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-8 text-ink-400">
+                  <td colSpan={5} className="text-center py-8 text-ink-400">
                     ไม่พบรหัสบัญชีที่ตรงกับเงื่อนไข
                   </td>
                 </tr>
               ) : (
                 filteredAccounts.map((acc) => {
-                  const currentCategory = acc.userMapping || 'auto'
+                  const currentCategory = customMappings[acc.code] || acc.userMapping || 'auto'
+                  const isSelected = selectedCodes.has(acc.code)
+                  const hasCustomMapping = !!customMappings[acc.code] && customMappings[acc.code] !== 'auto'
                   return (
-                    <tr key={acc.code} className="border-b border-black/5 hover:bg-black/[0.015]">
+                    <tr
+                      key={acc.code}
+                      className={`border-b border-black/5 hover:bg-black/[0.015] transition-colors ${
+                        isSelected ? 'bg-ocean/5 border-ocean/20' : ''
+                      }`}
+                    >
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(acc.code)}
+                          className="cursor-pointer accent-ocean w-3.5 h-3.5"
+                        />
+                      </td>
                       <td className="py-2 px-2 font-mono font-semibold text-ocean">{acc.code}</td>
                       <td className="py-2 px-2 font-medium text-ink-800">
                         {acc.name}
@@ -546,6 +792,11 @@ function AccountMappingAuditModal({
                             ยังไม่อยู่ใน Template
                           </span>
                         )}
+                        {hasCustomMapping && (
+                          <span className="ml-2 bg-ocean/10 text-ocean text-[10px] px-1.5 py-0.5 rounded font-bold">
+                            ✏️ ปรับแล้ว
+                          </span>
+                        )}
                       </td>
                       <td className="py-2 px-2 text-right font-bold text-ink-900 tabular-nums">
                         {formatBaht(acc.total)}
@@ -554,9 +805,13 @@ function AccountMappingAuditModal({
                         <select
                           value={currentCategory}
                           onChange={(e) => onUpdateMapping(acc.code, e.target.value)}
-                          className="w-full text-xs border border-black/20 rounded-lg px-2 py-1 bg-white font-medium text-ink-900 focus:border-ocean"
+                          className={`w-full text-xs border rounded-lg px-2 py-1 font-medium text-ink-900 focus:outline-none transition-colors ${
+                            hasCustomMapping
+                              ? 'border-ocean/50 bg-ocean/5 focus:border-ocean'
+                              : 'border-black/20 bg-white focus:border-ocean'
+                          }`}
                         >
-                          {PIVOT_CATEGORY_OPTIONS.map((opt) => (
+                          {allCategoryOptions.map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
@@ -575,6 +830,11 @@ function AccountMappingAuditModal({
         <div className="px-6 py-3 border-t border-black/10 bg-ink-50 flex items-center justify-between">
           <p className="text-xs text-ink-500">
             การปรับแต่งทุกรายการจะบันทึกและคำนวณสูตรตาราง Pivot ใหม่ทันที
+            {selectedCodes.size > 0 && (
+              <span className="ml-2 text-ocean font-semibold">
+                · เลือกอยู่ {selectedCodes.size} รหัส
+              </span>
+            )}
           </p>
           <button
             onClick={onClose}

@@ -382,20 +382,20 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     })
   }
 
-  // 2. Fallback to ungroupedAccounts if rawAccounts is not available
-  if (accountMap.size === 0) {
-    if (Array.isArray(rawData?.ungroupedAccounts)) {
-      rawData.ungroupedAccounts.forEach((a) => {
-        if (a.code && !accountMap.has(a.code)) {
-          accountMap.set(a.code, {
-            code: a.code,
-            name: a.name || '',
-            monthly: getMonthlyArr(a),
-            total: Number(a.total) || 0,
-          })
-        }
-      })
-    }
+  // 2. ALWAYS add ungroupedAccounts to accountMap too
+  //    (SQL returns both groups AND ungroupedAccounts; ungrouped accounts include COGS accounts
+  //     that may not belong to any expense group — must always be visible for COGS detection)
+  if (Array.isArray(rawData?.ungroupedAccounts)) {
+    rawData.ungroupedAccounts.forEach((a) => {
+      if (a.code && !accountMap.has(a.code)) {
+        accountMap.set(a.code, {
+          code: a.code,
+          name: a.name || '',
+          monthly: getMonthlyArr(a),
+          total: Number(a.total) || 0,
+        })
+      }
+    })
   }
 
   // Calculate active months count (months where there is at least one transaction in database)
@@ -415,8 +415,10 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
   // Track used account codes to identify unmatched/unmapped items
   const usedAccountCodes = new Set()
 
-  // Helper to fetch monthly amounts for an item considering custom mappings
-  const getItemMonthly = (spec, categoryKey = null) => {
+  // Helper to fetch monthly amounts for a single item spec
+  // excludeGroupExtra=true skips section-2 (extra mapped accounts) — used in cat-group loops
+  // so extra accounts are NOT baked into every item row (which would double-count them).
+  const getItemMonthly = (spec, categoryKey = null, excludeGroupExtra = false) => {
     let monthly = Array(12).fill(0)
     const targetCodes = spec.matchCodes || (spec.code ? [spec.code] : [])
 
@@ -436,8 +438,10 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
       }
     }
 
-    // 2. Sum up any other account codes explicitly mapped to this category by user
-    if (categoryKey) {
+    // 2. Sum up any other account codes explicitly mapped to this category by user.
+    //    Only executed when NOT inside a group item loop (excludeGroupExtra=false).
+    //    When inside a group loop, extra-mapped accounts are handled once in getExtraGroupMonthly.
+    if (categoryKey && !excludeGroupExtra) {
       accountMap.forEach((acc, accCode) => {
         if (customMappings[accCode] === categoryKey && !targetCodes.includes(accCode)) {
           usedAccountCodes.add(accCode)
@@ -449,6 +453,24 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     }
 
     return monthly
+  }
+
+  // Helper: collect extra accounts that user mapped to a categoryKey but are NOT in knownCodes
+  // Returns { rows: [{code,name,monthly}], monthly: [12] }
+  const getExtraGroupMonthly = (categoryKey, knownCodes) => {
+    const extraRows = []
+    let extraMonthly = Array(12).fill(0)
+    accountMap.forEach((acc, accCode) => {
+      if (
+        customMappings[accCode] === categoryKey &&
+        !knownCodes.has(accCode)
+      ) {
+        usedAccountCodes.add(accCode)
+        acc.monthly.forEach((val, i) => { extraMonthly[i] += val })
+        extraRows.push({ code: accCode, name: acc.name, type: 'item', monthly: acc.monthly.slice() })
+      }
+    })
+    return { rows: extraRows, monthly: extraMonthly }
   }
 
   // Calculate Section 1: Revenue
@@ -595,19 +617,37 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
     } else if (block.type === 'pct-row') {
       if (block.id === 'cogs-pct') {
         const pctVal = totalRevSum > 0 ? Number(((cogsTotal / totalRevSum) * 100).toFixed(2)) : 0
+        // Monthly COGS% = COGS_month / Revenue_month * 100
+        let monthlyPct = totalRevMonthly.map((rev, i) =>
+          rev > 0 ? Number(((cogsMonthly[i] / rev) * 100).toFixed(2)) : 0
+        )
+        if (monthFilter) {
+          const mIdx = Number(monthFilter) - 1
+          monthlyPct = monthlyPct.map((v, i) => i === mIdx ? v : 0)
+        }
         rows.push({
           code: '',
           name: 'คิดเป็น%',
           type: 'pct-row',
           pctValue: `${pctVal}%`,
+          monthlyPct,
         })
       } else if (block.id === 'cogs-pct-check') {
         const pctVal = totalRevSum > 0 ? Number((((totalRevSum - cogsTotal) / totalRevSum) * 100).toFixed(2)) : 100
+        // Monthly GrossProfit% = (Revenue_month - COGS_month) / Revenue_month * 100
+        let monthlyPct = totalRevMonthly.map((rev, i) =>
+          rev > 0 ? Number((((rev - cogsMonthly[i]) / rev) * 100).toFixed(2)) : 0
+        )
+        if (monthFilter) {
+          const mIdx = Number(monthFilter) - 1
+          monthlyPct = monthlyPct.map((v, i) => i === mIdx ? v : 0)
+        }
         rows.push({
           code: '',
           name: 'คิดเป็น%',
           type: 'pct-row',
           pctValue: `${pctVal}%`,
+          monthlyPct,
         })
       }
     } else if (block.type === 'cogs-row') {
@@ -625,16 +665,30 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
       let subGroupMonthly = Array(12).fill(0)
       const catItemRows = []
 
+      // Collect known codes in this group (including matchCodes aliases)
+      const knownGroupCodes = new Set()
       block.items.forEach((itemSpec) => {
-        const mArr = getItemMonthly(itemSpec, block.categoryKey)
-        mArr.forEach((v, i) => { subGroupMonthly[i] += v })
+        const codes = itemSpec.matchCodes || (itemSpec.code ? [itemSpec.code] : [])
+        codes.forEach((c) => knownGroupCodes.add(c))
+      })
 
+      // Each item gets only its OWN monthly (excludeGroupExtra=true)
+      block.items.forEach((itemSpec) => {
+        const mArr = getItemMonthly(itemSpec, block.categoryKey, true)
+        mArr.forEach((v, i) => { subGroupMonthly[i] += v })
         catItemRows.push({
           code: itemSpec.code,
           name: itemSpec.name,
           type: 'item',
           monthly: mArr,
         })
+      })
+
+      // Append extra accounts user mapped to this category (not in items list)
+      const extra = getExtraGroupMonthly(block.categoryKey, knownGroupCodes)
+      extra.rows.forEach((r) => {
+        catItemRows.push(r)
+        r.monthly.forEach((v, i) => { subGroupMonthly[i] += v })
       })
 
       const catSum = subGroupMonthly.reduce((a, b) => a + b, 0)
@@ -666,12 +720,20 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
       grandTotalExpSum += catSum
     } else if (block.type === 'cat-group-dual') {
       // 3.2 Category with dual sub-groups
+      // First pass: compute total for header % only (exclude extra to avoid double counting)
       let catTotalMonthly = Array(12).fill(0)
       block.subGroups.forEach((sg) => {
+        const knownSgCodes = new Set()
         sg.items.forEach((itemSpec) => {
-          const mArr = getItemMonthly(itemSpec, sg.categoryKey)
+          const codes = itemSpec.matchCodes || (itemSpec.code ? [itemSpec.code] : [])
+          codes.forEach((c) => knownSgCodes.add(c))
+        })
+        sg.items.forEach((itemSpec) => {
+          const mArr = getItemMonthly(itemSpec, sg.categoryKey, true)
           mArr.forEach((v, i) => { catTotalMonthly[i] += v })
         })
+        const extra = getExtraGroupMonthly(sg.categoryKey, knownSgCodes)
+        extra.monthly.forEach((v, i) => { catTotalMonthly[i] += v })
       })
       const catTotalSum = catTotalMonthly.reduce((a, b) => a + b, 0)
       const catPct = totalRevSum > 0 ? Number(((catTotalSum / totalRevSum) * 100).toFixed(2)) : 0
@@ -688,8 +750,14 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
         let sgMonthly = Array(12).fill(0)
         const sgRows = []
 
+        const knownSgCodes = new Set()
         sg.items.forEach((itemSpec) => {
-          const mArr = getItemMonthly(itemSpec, sg.categoryKey)
+          const codes = itemSpec.matchCodes || (itemSpec.code ? [itemSpec.code] : [])
+          codes.forEach((c) => knownSgCodes.add(c))
+        })
+
+        sg.items.forEach((itemSpec) => {
+          const mArr = getItemMonthly(itemSpec, sg.categoryKey, true)
           mArr.forEach((v, i) => { sgMonthly[i] += v })
           sgRows.push({
             code: itemSpec.code,
@@ -697,6 +765,13 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
             type: 'item',
             monthly: mArr,
           })
+        })
+
+        // Append extra accounts user mapped to this sub-group
+        const extra = getExtraGroupMonthly(sg.categoryKey, knownSgCodes)
+        extra.rows.forEach((r) => {
+          sgRows.push(r)
+          r.monthly.forEach((v, i) => { sgMonthly[i] += v })
         })
 
         // Sub-group items
@@ -712,7 +787,6 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
           showAvg: true,
           showPct: true,
         })
-
 
         // Add to grand total of expenses
         sgMonthly.forEach((v, i) => { grandTotalExpMonthly[i] += v })
@@ -740,6 +814,9 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
           if (Array.isArray(dbGroup.accounts)) {
             dbGroup.accounts.forEach((acc) => {
               if (!acc.code || addedCodes.has(acc.code)) return
+              // Respect customMappings: if user explicitly moved this code to another category, skip it here
+              const userMapping = customMappings[acc.code]
+              if (userMapping && userMapping !== 'auto' && userMapping !== block.categoryKey) return
               addedCodes.add(acc.code)
               usedAccountCodes.add(acc.code)
               const mArr = getMonthlyArr(acc)
@@ -757,8 +834,14 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
         if (Array.isArray(block.fallbackItems)) {
           block.fallbackItems.forEach((itemSpec) => {
             if (!itemSpec.code || addedCodes.has(itemSpec.code)) return
+            // Respect customMappings: skip if user moved this elsewhere
+            const userMapping = customMappings[itemSpec.code]
+            if (userMapping && userMapping !== 'auto' && userMapping !== block.categoryKey) {
+              addedCodes.add(itemSpec.code) // mark as handled so getExtraGroupMonthly won't add it to wrong group
+              return
+            }
             addedCodes.add(itemSpec.code)
-            const mArr = getItemMonthly(itemSpec, block.categoryKey)
+            const mArr = getItemMonthly(itemSpec, block.categoryKey, true)
             if (mArr.some((v) => v !== 0)) {
               mArr.forEach((v, i) => { subGroupMonthly[i] += v })
               catItemRows.push({ code: itemSpec.code, name: itemSpec.name, type: 'item', monthly: mArr })
@@ -770,12 +853,25 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
         const fallbackItems = block.fallbackItems || []
         fallbackItems.forEach((itemSpec) => {
           if (!itemSpec.code || addedCodes.has(itemSpec.code)) return
+          // Respect customMappings: skip if user moved this elsewhere
+          const userMapping = customMappings[itemSpec.code]
+          if (userMapping && userMapping !== 'auto' && userMapping !== block.categoryKey) {
+            addedCodes.add(itemSpec.code)
+            return
+          }
           addedCodes.add(itemSpec.code)
-          const mArr = getItemMonthly(itemSpec, block.categoryKey)
+          const mArr = getItemMonthly(itemSpec, block.categoryKey, true)
           mArr.forEach((v, i) => { subGroupMonthly[i] += v })
           catItemRows.push({ code: itemSpec.code, name: itemSpec.name, type: 'item', monthly: mArr })
         })
       }
+
+      // Append extra accounts user explicitly mapped TO this dynamic category (not already added above)
+      const extraDyn = getExtraGroupMonthly(block.categoryKey, addedCodes)
+      extraDyn.rows.forEach((r) => {
+        catItemRows.push(r)
+        r.monthly.forEach((v, i) => { subGroupMonthly[i] += v })
+      })
 
       const catSum = subGroupMonthly.reduce((a, b) => a + b, 0)
       const catPct = totalRevSum > 0 ? Number(((catSum / totalRevSum) * 100).toFixed(2)) : 0
@@ -797,11 +893,20 @@ export function buildExecutivePivotData(rawData, year, monthFilter = '', customM
 
   // Section 4 summary formulas
   const totalExpPct = totalRevSum > 0 ? Number(((grandTotalExpSum / totalRevSum) * 100).toFixed(2)) : 0
+  // Monthly TotalExp% = TotalExp_month / Revenue_month * 100
+  let totalExpMonthlyPct = totalRevMonthly.map((rev, i) =>
+    rev > 0 ? Number(((grandTotalExpMonthly[i] / rev) * 100).toFixed(2)) : 0
+  )
+  if (monthFilter) {
+    const mIdx = Number(monthFilter) - 1
+    totalExpMonthlyPct = totalExpMonthlyPct.map((v, i) => i === mIdx ? v : 0)
+  }
   rows.push({
     code: '',
     name: 'คิดเป็น%',
     type: 'pct-row',
     pctValue: `${totalExpPct}%`,
+    monthlyPct: totalExpMonthlyPct,
   })
 
   addRow({
