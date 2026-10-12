@@ -1,0 +1,35 @@
+.workshop-schedule { padding: 20px; }
+.workshop-schedule .ws-toolbar, .workshop-schedule .ws-day-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.workshop-schedule h2 { font-size: 18px; font-weight: 600; }
+.workshop-schedule .ws-toolbar p { color: #617988; font-size: 13px; margin-top: 5px; }
+.workshop-schedule .ws-month-controls { display: flex; gap: 6px; min-width: 0; }
+.workshop-schedule .ws-month-controls select, .workshop-schedule .ws-month-controls button, .ws-date-input select { min-width: 0; min-height: 44px; border: 1px solid #cfdee6; background: white; color: #17364b; border-radius: 8px; padding: 8px; font-size: 15px; }
+.workshop-schedule .ws-month-controls button { width: 38px; font-size: 22px; }
+.workshop-schedule .ws-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 20px; }
+.workshop-schedule .ws-weekday { text-align: center; font-size: 12px; color: #617988; padding: 6px; }
+.workshop-schedule .ws-day { min-width: 0; min-height: 78px; padding: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border-radius: 9px; border: 1px solid #dce7ed; background: #fff; font-size: 14px; color: #17364b; }
+.workshop-schedule .ws-day:hover, .workshop-schedule .ws-day[aria-pressed=true] { background: #e3f0f6; border-color: #147ba8; }
+.workshop-schedule .ws-day[aria-current=date] > span { font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.workshop-schedule .ws-day strong { color: #147ba8; font-size: 12px; }
+.workshop-schedule .ws-day-detail { padding-top: 20px; margin-top: 20px; border-top: 1px solid #dce7ed; display: grid; gap: 12px; }
+.workshop-schedule .ws-day-heading h3 { font-size: 16px; font-weight: 600; }
+.workshop-schedule .ws-plan { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; text-align: left; padding: 14px; background: #edf3f6; border-radius: 8px; font-size: 14px; overflow-wrap: anywhere; }
+.workshop-schedule .ws-plan small { display: block; font-size: 12px; color: #617988; margin-top: 4px; }
+.workshop-schedule .ws-status { color: #147ba8; font-size: 12px; }
+.ws-date-input { min-width: 0; padding: 0; border: 0; }
+.ws-date-input legend { font-size: 13px; margin-bottom: 8px; color: #516d7f; }
+.ws-date-input .ws-date-parts { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.5fr) minmax(0, 1fr); gap: 8px; max-width: 480px; }
+.ws-date-input select { width: 100%; }
+.workshop-request input { min-width: 0; max-width: 100%; }
+@media (max-width: 600px) {
+  .workshop-schedule { padding: 14px; }
+  .workshop-schedule .ws-month-controls { width: 100%; }
+  .workshop-schedule .ws-month-controls select:first-of-type { flex: 1; }
+  .workshop-schedule .ws-month-controls button { width: 34px; flex-shrink: 0; }
+  .workshop-schedule .ws-calendar { gap: 4px; }
+  .workshop-schedule .ws-day { min-height: 60px; padding: 6px 4px; }
+  .workshop-schedule .ws-day strong { font-size: 10px; }
+  .workshop-schedule .ws-day-heading .btn-primary { width: 100%; }
+  .ws-date-input .ws-date-parts { gap: 6px; }
+  .ws-date-input select, .workshop-request input { font-size: 16px; }
+}

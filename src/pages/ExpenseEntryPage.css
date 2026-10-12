@@ -1,0 +1,92 @@
+/* Scoped to expense entry: financial reports, dashboard and shared shell stay unchanged. */
+.expense-entry { container-type: inline-size; max-width: 1320px; margin: 0 auto; color: #17364b; padding-bottom: 16px; }
+.expense-entry .ee-heading { margin-bottom: 24px; }
+.expense-entry h1 { font-size: clamp(25px, 3vw, 32px); line-height: 1.4; font-weight: 700; letter-spacing: -.025em; }
+.expense-entry .ee-heading p { font-size: 14px; color: #516d7f; margin-top: 6px; }
+.expense-entry h2 { font-size: 18px; font-weight: 600; line-height: 1.5; }
+.expense-entry .ee-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.expense-entry .ee-editor { min-width: 0; display: grid; align-content: start; gap: 20px; }
+.expense-entry .ee-panel { min-width: 0; padding: 24px; background: #fff; border: 1px solid #dce7ed; border-radius: 12px; box-shadow: 0 3px 14px #17364b04; }
+.expense-entry .ee-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.expense-entry .ee-count { color: #617988; font-size: 13px; font-weight: 400; margin-left: 6px; }
+.expense-entry .ee-basic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; }
+.expense-entry .ee-store, .expense-entry .ee-note, .expense-entry .ee-date { grid-column: 1 / -1; }
+.expense-entry .ee-field { min-width: 0; }
+.expense-entry label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+.expense-entry input, .expense-entry select { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; border: 1px solid #cfdee6; border-radius: 7px; background: #fff; color: #17364b; font: inherit; font-size: 15px; line-height: 1.5; padding: 10px 12px; }
+.expense-entry select { text-overflow: ellipsis; padding-right: 28px; }
+.expense-entry input::placeholder { color: #718694; }
+.expense-entry input, .expense-entry select { scroll-margin-block: 24px 120px; }
+.expense-entry input:focus, .expense-entry select:focus { outline: 2px solid #147ba833; outline-offset: 1px; border-color: #147ba8; }
+.expense-entry button:focus-visible { outline: 3px solid #147ba880; outline-offset: 3px; }
+.expense-entry .ee-add, .expense-entry .ee-save { border-radius: 8px; background: #147ba8; color: white; min-height: 44px; padding: 10px 18px; font-size: 14px; font-weight: 600; }
+.expense-entry .ee-add:hover, .expense-entry .ee-save:hover { background: #10698f; }
+.expense-entry .ee-text-button { color: #147ba8; font-size: 13px; min-height: 44px; }
+.expense-entry .ee-basic-preview { font-size: 14px; line-height: 1.9; overflow-wrap: anywhere; color: #516d7f; }
+.expense-entry .ee-items { display: grid; gap: 10px; }
+.expense-entry .ee-item { min-width: 0; border: 1px solid #dce7ed; border-radius: 9px; background: #f8fbfd; overflow: hidden; }
+.expense-entry .ee-item.is-open { border-left: 3px solid #147ba8; background: #fff; }
+.expense-entry .ee-item-toggle { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 16px; text-align: left; min-height: 58px; }
+.expense-entry .ee-item-toggle:hover { background: #edf3f6; }
+.expense-entry .ee-item-number { color: #147ba8; font-size: 14px; font-weight: 600; }
+.expense-entry .ee-item-name { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.expense-entry .ee-item-amount { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; max-width: 160px; text-align: right; }
+.expense-entry small { font-size: 12px; font-weight: 400; }
+.expense-entry .ee-chevron { color: #147ba8; }
+.expense-entry .ee-item-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 14px; padding: 12px 16px 18px; }
+.expense-entry .ee-wide, .expense-entry .ee-full { grid-column: 1 / -1; }
+.expense-entry .ee-item-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid #e5edf2; padding: 8px 16px; font-size: 12px; }
+.expense-entry .ee-item-footer strong { font-size: 15px; margin-left: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.expense-entry .ee-remove { color: #c33b35; min-height: 44px; padding: 8px 0; font-size: 13px; }
+.expense-entry .ee-remove:disabled { cursor: not-allowed; opacity: .4; }
+.expense-entry .ee-attachment { margin-top: 22px; padding-top: 20px; border-top: 1px solid #e5edf2; }
+.expense-entry .ee-attachment label span { font-weight: 400; color: #617988; }
+.expense-entry input[type=file] { padding: 8px; font-size: 13px; }
+.expense-entry input::file-selector-button { padding: 8px 12px; border: 1px solid #cfdee6; border-radius: 5px; color: #147ba8; background: #edf3f6; margin-right: 12px; cursor: pointer; }
+.expense-entry .ee-summary { align-self: start; }
+.expense-entry .ee-summary-count { font-size: 14px; margin-top: 24px; color: #617988; }
+.expense-entry .ee-total-label { font-size: 14px; margin-top: 8px; }
+.expense-entry .ee-total { color: #147ba8; font-size: clamp(26px, 3vw, 34px); font-weight: 700; letter-spacing: -.035em; line-height: 1.45; margin-top: 8px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.expense-entry .ee-total small { font-size: 16px; }
+.expense-entry .ee-breakdown { margin: 24px 0; border-top: 1px solid #dce7ed; }
+.expense-entry .ee-breakdown > div { display: flex; justify-content: space-between; gap: 16px; padding: 18px 0; border-bottom: 1px solid #edf3f6; font-size: 13px; }
+.expense-entry dt { color: #516d7f; max-width: 130px; }
+.expense-entry dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
+.expense-entry .ee-summary .ee-save { width: 100%; }
+.expense-entry .ee-mobile-save { display: none; }
+.expense-entry .ee-error { color: #ad2e28; background: #fdecea; border: 1px solid #e6b5b2; border-radius: 8px; padding: 14px 16px; margin-top: 16px; font-size: 14px; overflow-wrap: anywhere; }
+.expense-entry .ee-success { background: #eaf7ef; border: 1px solid #bedcc8; border-radius: 8px; padding: 16px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 14px; }
+.expense-entry .ee-success button { color: #147ba8; text-decoration: underline; min-height: 44px; }
+.expense-entry [hidden] { display: none !important; }
+@container (min-width: 600px) {
+  .expense-entry .ee-item-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .expense-entry .ee-wide { grid-column: auto; }
+  .expense-entry .ee-basic-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .expense-entry .ee-store { grid-column: span 2; }
+  .expense-entry .ee-note, .expense-entry .ee-date { grid-column: auto; }
+}
+@container (min-width: 980px) {
+  .expense-entry .ee-layout { grid-template-columns: minmax(0, 1fr) 280px; align-items: start; }
+  .expense-entry .ee-summary { position: sticky; top: 20px; }
+}
+@media (max-width: 760px) {
+  .expense-entry { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+  .expense-entry .ee-panel { padding: 16px; }
+  .expense-entry .ee-heading { margin-bottom: 20px; }
+  .expense-entry .ee-heading p { font-size: 13px; }
+  .expense-entry h2 { font-size: 17px; }
+  .expense-entry input, .expense-entry select { font-size: 16px; }
+  .expense-entry .ee-section-heading { gap: 8px; margin-bottom: 14px; }
+  .expense-entry .ee-add { padding: 10px 12px; font-size: 13px; }
+  .expense-entry .ee-item-toggle { gap: 8px; padding: 12px; }
+  .expense-entry .ee-item-name { font-size: 14px; }
+  .expense-entry .ee-item-amount { max-width: 108px; font-size: 13px; }
+  .expense-entry .ee-item-fields { padding: 8px 12px 16px; gap: 16px 12px; }
+  .expense-entry .ee-item-footer { padding: 6px 12px; }
+  .expense-entry .ee-summary .ee-save { display: none; }
+  .expense-entry .ee-mobile-save { position: fixed; z-index: 25; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); background: #fff; border-top: 1px solid #dce7ed; box-shadow: 0 -4px 16px #17364b08; }
+  .expense-entry .ee-mobile-save > div { min-width: 0; }
+  .expense-entry .ee-mobile-save span { display: block; font-size: 12px; color: #516d7f; }
+  .expense-entry .ee-mobile-save strong { display: block; font-size: 21px; line-height: 1.4; color: #147ba8; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .expense-entry .ee-mobile-save .ee-save { flex-shrink: 0; }
+}

@@ -1,9 +1,15 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { expenseSummary, baht, lineSatang } from '../lib/expenseSummary'
 import { uploadExpenseAttachment } from '../lib/expenseAttachments'
 import { MAIN_CATEGORIES, DETAILS } from '../lib/constants'
+
+import './ExpenseEntryPage.css'
+
+function Field({ id, label, className = '', children }) {
+  return <div className={`ee-field ${className}`}><label htmlFor={id}>{label}</label>{children}</div>
+}
 
 function emptyItem() {
   return { mainCategory: '', detail: '', qty: '', unit: '', unitPrice: '', remark: '', accountId: '' }
@@ -11,6 +17,9 @@ function emptyItem() {
 
 export default function ExpenseEntryPage({onNavigate}) {
   const { currentUser } = useAuth()
+  const [openIndex, setOpenIndex] = useState(0)
+  const [basicOpen, setBasicOpen] = useState(true)
+  const errorRef = useRef(null)
   const [storeName, setStoreName] = useState('')
   const [eventDate, setEventDate] = useState('')
   const [attendees, setAttendees] = useState('')
@@ -40,10 +49,13 @@ export default function ExpenseEntryPage({onNavigate}) {
   }
 
   function addItem() {
+    setOpenIndex(items.length)
     setItems((prev) => [...prev, emptyItem()])
   }
 
   function removeItem(index) {
+    if (items.length === 1) return
+    setOpenIndex(current => current == null ? null : current === index ? Math.max(0, index - 1) : current > index ? current - 1 : current)
     setItems((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)))
   }
 
@@ -74,6 +86,10 @@ export default function ExpenseEntryPage({onNavigate}) {
     const clientError = validateClientSide()
     if (clientError) {
       setError(clientError)
+      setBasicOpen(true)
+      const invalidIndex = items.findIndex(it => !it.mainCategory.trim() || !it.detail.trim() || !it.accountId || !/^\d+(\.\d+)?$/.test(it.qty) || Number(it.qty) <= 0 || !/^\d+(\.\d+)?$/.test(it.unitPrice))
+      if (invalidIndex >= 0) setOpenIndex(invalidIndex)
+      requestAnimationFrame(() => errorRef.current?.focus())
       return
     }
     if (submitting) return
@@ -107,125 +123,101 @@ export default function ExpenseEntryPage({onNavigate}) {
     setWorkDays('')
     setInternalNote('')
     setItems([emptyItem()])
+    setOpenIndex(0)
+    setBasicOpen(true)
     setFile(null); setAttachmentPath(null); setFormKey(k=>k+1); setRequestId(crypto.randomUUID())
     } catch (err) { setError('บันทึกไม่สำเร็จ: ' + err.message) } finally { setSubmitting(false) }
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="font-display italic text-3xl text-ink-900">บันทึกค่าใช้จ่าย</h1>
-        <p className="text-ink-600 text-sm mt-1">เพิ่มรายการค่าใช้จ่ายสำหรับร้านค้า/งานหนึ่งครั้ง (ออกเลขที่เอกสารอัตโนมัติ)</p>
-      </div>
+    <div className="expense-entry">
+      <header className="ee-heading">
+        <h1>บันทึกค่าใช้จ่าย</h1>
+        <p>เพิ่มรายการค่าใช้จ่ายสำหรับร้านค้า / งานหนึ่งครั้ง</p>
+      </header>
 
       {success && (
-        <div className="glass p-4 flex items-center gap-3 border-sage/30">
-          <span className="doc-badge">{success.docNo}</span>
-          <p className="text-sage text-sm">{success.message} — บันทึก {success.rowsSaved} รายการ</p><button type="button" className="btn-ghost" onClick={()=>onNavigate("expense-report")}>ดูรายงาน</button><button type="button" className="btn-ghost" onClick={()=>onNavigate("expense-history")}>ดูประวัติ</button>
+        <div className="ee-success" role="status">
+          <strong>{success.docNo}</strong>
+          <span>{success.message} — บันทึก {success.rowsSaved} รายการ</span>
+          <button type="button" onClick={() => onNavigate('expense-report')}>ดูรายงาน</button>
+          <button type="button" onClick={() => onNavigate('expense-history')}>ดูประวัติ</button>
         </div>
       )}
 
-      <form key={formKey} onSubmit={handleSubmit} className="space-y-6">
-        <div className="glass p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <label className="block text-xs text-ink-600 mb-1.5">ชื่อร้านค้า / ชื่องาน *</label>
-            <input className="glass-input w-full" value={storeName} onChange={(e) => setStoreName(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs text-ink-600 mb-1.5">วันที่จัดงาน *</label>
-            <input type="date" className="glass-input w-full" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs text-ink-600 mb-1.5">จำนวนผู้เข้างาน</label>
-            <input type="number" min="0" className="glass-input w-full" value={attendees} onChange={(e) => setAttendees(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs text-ink-600 mb-1.5">จำนวนวันทำงาน</label>
-            <input type="number" min="0" className="glass-input w-full" value={workDays} onChange={(e) => setWorkDays(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-xs text-ink-600 mb-1.5">หมายเหตุภายใน</label>
-            <input className="glass-input w-full" value={internalNote} onChange={(e) => setInternalNote(e.target.value)} />
-          </div>
-        </div>
+      <form key={formKey} id="expense-entry-form" onSubmit={handleSubmit} noValidate>
+        <fieldset disabled={submitting} className="ee-layout">
+          <div className="ee-editor">
+            <section className="ee-panel" aria-labelledby="ee-basic-title">
+              <div className="ee-section-heading">
+                <h2 id="ee-basic-title">ข้อมูลพื้นฐาน</h2>
+                <button type="button" className="ee-text-button ee-basic-toggle" aria-expanded={basicOpen} aria-controls="ee-basic-fields" onClick={() => setBasicOpen(v => !v)}>{basicOpen ? 'ย่อข้อมูล' : 'แก้ไขข้อมูล'} <span aria-hidden="true">{basicOpen ? '⌃' : '⌄'}</span></button>
+              </div>
+              {!basicOpen && <p className="ee-basic-preview">{storeName || 'ยังไม่ได้ระบุร้านค้า / งาน'}{eventDate && ` · ${eventDate}`}<br />ผู้เข้างาน {attendees || '0'} คน · {workDays || '0'} วัน</p>}
+              <div id="ee-basic-fields" className="ee-basic-grid" hidden={!basicOpen}>
+                <Field id="ee-store" label="ชื่อร้านค้า / ชื่องาน *" className="ee-store"><input id="ee-store" aria-required="true" value={storeName} onChange={e => setStoreName(e.target.value)} placeholder="ระบุชื่อร้านค้า / ชื่องาน" /></Field>
+                <Field id="ee-date" label="วันที่จัดงาน *" className="ee-date"><input id="ee-date" type="date" aria-required="true" value={eventDate} onChange={e => setEventDate(e.target.value)} /></Field>
+                <Field id="ee-attendees" label="จำนวนผู้เข้างาน"><input id="ee-attendees" type="number" inputMode="numeric" min="0" value={attendees} onChange={e => setAttendees(e.target.value)} placeholder="0" /></Field>
+                <Field id="ee-days" label="จำนวนวันทำงาน"><input id="ee-days" type="number" inputMode="numeric" min="0" value={workDays} onChange={e => setWorkDays(e.target.value)} placeholder="0" /></Field>
+                <Field id="ee-note" label="หมายเหตุภายใน" className="ee-note"><input id="ee-note" value={internalNote} onChange={e => setInternalNote(e.target.value)} placeholder="ระบุหมายเหตุ (ถ้ามี)" /></Field>
+              </div>
+            </section>
 
-        <div className="glass p-4"><label className="block text-sm mb-2">ไฟล์แนบ (ไม่เกิน 10 MB)<input aria-label="ไฟล์แนบค่าใช้จ่าย" type="file" className="glass-input w-full mt-2" onChange={e=>{const f=e.target.files?.[0];if(f?.size>10*1024*1024){setError('ไฟล์แนบต้องไม่เกิน 10 MB');e.target.value='';setFile(null)}else{setFile(f??null);setError('')}setAttachmentPath(null)}}/></label></div>
-        <div className="glass p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-ink-900 font-medium">รายการค่าใช้จ่าย</h2>
-            <button type="button" onClick={addItem} className="btn-ghost text-sm">+ เพิ่มรายการ</button>
+            <section className="ee-panel" aria-labelledby="ee-items-title">
+              <div className="ee-section-heading">
+                <h2 id="ee-items-title">รายการค่าใช้จ่าย <span className="ee-count">{items.length}</span></h2>
+                <button type="button" className="ee-add" onClick={addItem}>+ เพิ่มรายการ</button>
+              </div>
+              <div className="ee-items">
+                {items.map((it, i) => (
+                  <section className={`ee-item ${openIndex === i ? 'is-open' : ''}`} key={i}>
+                    <button type="button" className="ee-item-toggle" aria-expanded={openIndex === i} aria-controls={`ee-item-${i}`} onClick={() => setOpenIndex(openIndex === i ? null : i)}>
+                      <span className="ee-item-number">{String(i + 1).padStart(2, '0')}</span>
+                      <span className="ee-item-name">{it.detail || it.mainCategory || `รายการที่ ${i + 1}`}</span>
+                      <span className="ee-item-amount">{baht(lineSatang(it.qty, it.unitPrice) / 100)} <small>บาท</small></span>
+                      <span className="ee-chevron" aria-hidden="true">{openIndex === i ? '⌃' : '⌄'}</span>
+                    </button>
+                    <div id={`ee-item-${i}`} hidden={openIndex !== i}>
+                      <div className="ee-item-fields">
+                        <Field id={`ee-category-${i}`} label="หมวดหมู่หลัก *" className="ee-wide"><select id={`ee-category-${i}`} aria-required="true" value={it.mainCategory} onChange={e => updateItem(i, 'mainCategory', e.target.value)}><option value="">เลือกหมวดหมู่</option>{MAIN_CATEGORIES.filter(Boolean).map(c => <option key={c} value={c}>{c}</option>)}</select></Field>
+                        <Field id={`ee-detail-${i}`} label="รายละเอียด *" className="ee-wide"><select id={`ee-detail-${i}`} aria-required="true" value={it.detail} onChange={e => updateItem(i, 'detail', e.target.value)}><option value="">เลือกรายละเอียด</option>{DETAILS.map(d => <option key={d} value={d}>{d}</option>)}</select></Field>
+                        <Field id={`ee-account-${i}`} label="รหัสบัญชี *" className="ee-wide"><select id={`ee-account-${i}`} aria-required="true" value={it.accountId} onChange={e => updateItem(i, 'accountId', e.target.value)}><option value="">เลือกรหัสบัญชี</option>{accountOptions.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}</select></Field>
+                        <Field id={`ee-qty-${i}`} label="จำนวน *"><input id={`ee-qty-${i}`} type="number" inputMode="decimal" step="any" aria-required="true" value={it.qty} onChange={e => updateItem(i, 'qty', e.target.value)} placeholder="0" /></Field>
+                        <Field id={`ee-unit-${i}`} label="หน่วย"><input id={`ee-unit-${i}`} value={it.unit} onChange={e => updateItem(i, 'unit', e.target.value)} placeholder="เช่น ครั้ง / ชิ้น" /></Field>
+                        <Field id={`ee-price-${i}`} label="ราคาต่อหน่วย *" className="ee-wide"><input id={`ee-price-${i}`} type="number" inputMode="decimal" step="any" min="0" aria-required="true" value={it.unitPrice} onChange={e => updateItem(i, 'unitPrice', e.target.value)} placeholder="0.00" /></Field>
+                        <Field id={`ee-remark-${i}`} label="หมายเหตุรายการ" className="ee-full"><input id={`ee-remark-${i}`} value={it.remark} onChange={e => updateItem(i, 'remark', e.target.value)} placeholder="ระบุรายละเอียดเพิ่มเติม (ถ้ามี)" /></Field>
+                      </div>
+                      <div className="ee-item-footer">
+                        <button type="button" className="ee-remove" disabled={items.length === 1} aria-label={`ลบรายการที่ ${i + 1}`} onClick={() => removeItem(i)}>ลบรายการ</button>
+                        <span>ยอดรายการ <strong>{baht(lineSatang(it.qty, it.unitPrice) / 100)} บาท</strong></span>
+                      </div>
+                    </div>
+                  </section>
+                ))}
+              </div>
+              <div className="ee-attachment">
+                <label htmlFor="ee-file">ไฟล์แนบ <span>(ไม่เกิน 10 MB · ใช้กับเอกสารนี้)</span></label>
+                <input id="ee-file" type="file" aria-label="ไฟล์แนบค่าใช้จ่าย" onChange={e => { const f = e.target.files?.[0]; if (f?.size > 10 * 1024 * 1024) { setError('ไฟล์แนบต้องไม่เกิน 10 MB'); e.target.value = ''; setFile(null) } else { setFile(f ?? null); setError('') } setAttachmentPath(null) }} />
+              </div>
+            </section>
           </div>
 
-          {items.map((it, i) => (
-            <div key={i} className="glass-solid p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 relative">
-              <div className="sm:col-span-2">
-                <label className="block text-xs text-ink-600 mb-1">หมวดหมู่หลัก *</label>
-                <select className="glass-input w-full" value={it.mainCategory} onChange={(e) => updateItem(i, 'mainCategory', e.target.value)}>
-                  <option value="">— เลือก —</option>
-                  {MAIN_CATEGORIES.filter(Boolean).map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-xs text-ink-600 mb-1">รายละเอียด *</label>
-                <select className="glass-input w-full" value={it.detail} onChange={(e) => updateItem(i, 'detail', e.target.value)}>
-                  <option value="">— เลือก —</option>
-                  {DETAILS.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-xs text-ink-600 mb-1">รหัสบัญชี *</label>
-                <select className="glass-input w-full" value={it.accountId} onChange={(e) => updateItem(i, 'accountId', e.target.value)}>
-                  <option value="">— เลือก —</option>
-                  {accountOptions.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-ink-600 mb-1">จำนวน *</label>
-                <input type="number" step="any" className="glass-input w-full" value={it.qty} onChange={(e) => updateItem(i, 'qty', e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-xs text-ink-600 mb-1">หน่วย</label>
-                <input className="glass-input w-full" value={it.unit} onChange={(e) => updateItem(i, 'unit', e.target.value)} />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-xs text-ink-600 mb-1">ราคาต่อหน่วย *</label>
-                <input type="number" step="any" min="0" className="glass-input w-full" value={it.unitPrice} onChange={(e) => updateItem(i, 'unitPrice', e.target.value)} />
-              </div>
-              <div className="sm:col-span-3">
-                <label className="block text-xs text-ink-600 mb-1">หมายเหตุรายการ</label>
-                <input className="glass-input w-full" value={it.remark} onChange={(e) => updateItem(i, 'remark', e.target.value)} />
-              </div>
-              <div className="sm:col-span-1 flex items-end justify-between">
-                <span className="text-gold-dark text-sm">
-                  = {(lineSatang(it.qty,it.unitPrice)/100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                </span>
-                {items.length > 1 && (
-                  <button type="button" onClick={() => removeItem(i)} className="text-rose text-xs hover:underline">ลบ</button>
-                )}
-              </div>
-            </div>
-          ))}
-
-          <div className="flex justify-end pt-2 border-t border-black/10">
-            <p className="text-ink-900">
-              ค่าใช้จ่าย: <span className="font-display italic text-gold-dark text-xl ml-2">
-                {baht(totals.expense)}
-              </span>
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">{[['รายได้บริษัท',totals.income],['ส่วนต่างสุทธิ',totals.net],['ยอดขาย Workshop ของร้าน',totals.storeSales]].map(([label,value])=><div className="glass p-3" key={label}><p className="text-xs">{label}</p><strong>{baht(value)}</strong></div>)}</div>
-        {error && (
-          <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>
-        )}
-
-        <div className="flex justify-end">
-          <button type="submit" disabled={submitting} className="btn-primary disabled:opacity-60">
-            {submitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
-          </button>
+          <aside className="ee-panel ee-summary" aria-labelledby="ee-summary-title">
+            <h2 id="ee-summary-title">สรุปค่าใช้จ่าย</h2>
+            <p className="ee-summary-count">{items.length} รายการ</p>
+            <p className="ee-total-label">ยอดค่าใช้จ่ายรวม</p>
+            <p className="ee-total">{baht(totals.expense)} <small>บาท</small></p>
+            <dl className="ee-breakdown">{[['รายได้บริษัท', totals.income], ['ส่วนต่างสุทธิ', totals.net], ['ยอดขาย Workshop ของร้าน', totals.storeSales]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{baht(value)} <small>บาท</small></dd></div>)}</dl>
+            <button type="submit" className="ee-save">{submitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}</button>
+          </aside>
+        </fieldset>
+        {error && <p ref={errorRef} tabIndex={-1} role="alert" className="ee-error">{error}</p>}
+        <div className="ee-mobile-save">
+          <div><span>ค่าใช้จ่ายรวม</span><strong>{baht(totals.expense)} <small>บาท</small></strong></div>
+          <button type="submit" disabled={submitting} className="ee-save">{submitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}</button>
         </div>
       </form>
     </div>
   )
 }
+

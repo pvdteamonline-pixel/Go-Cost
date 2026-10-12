@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
-import DocumentCalendar from '../components/DocumentCalendar'
+import WorkshopSchedule from '../components/WorkshopSchedule'
+import WorkshopRequestForm from '../components/WorkshopRequestForm'
+import ThaiDateInput from '../components/ThaiDateInput'
+import { localDateISO, thaiDate } from '../lib/thaiDates'
 import ExpenseInsight from '../components/ExpenseInsight'
 import { openAttachment } from '../lib/expenseAttachments'
 import StoreSearchDropdown from '../components/StoreSearchDropdown'
@@ -24,6 +27,9 @@ function formatBaht(n) {
 export default function WorkshopHistoryPage() {
   const { currentUser } = useAuth()
   const [insight,setInsight]=useState(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => localDateISO().slice(0, 7))
+  const [selectedDate, setSelectedDate] = useState('')
+  const [createDate, setCreateDate] = useState(null)
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -51,6 +57,7 @@ export default function WorkshopHistoryPage() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState(null)
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
+  const canCreate = hasPagePermission(currentUser, 'workshop-plan-create')
   const canView = hasPagePermission(currentUser, 'workshop-plan-view')
   const canEdit = hasPagePermission(currentUser, 'workshop-plan-edit')
   const canDelete = hasPagePermission(currentUser, 'workshop-plan-delete')
@@ -58,10 +65,15 @@ export default function WorkshopHistoryPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const { data, error: err } = await supabase.rpc('get_workshop_plans', { p_actor_id: currentUser?.id ?? null })
-    setLoading(false)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    setPlans((data ?? []).filter((p) => currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id))
+    try {
+      const { data, error: err } = await supabase.rpc('get_workshop_plans', { p_actor_id: currentUser?.id ?? null })
+      if (err) throw new Error(err.message)
+      setPlans((data ?? []).filter(p => currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id))
+    } catch (err) {
+      setError('โหลดประวัติไม่สำเร็จ: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
   }, [currentUser])
 
   useEffect(() => { if (canView) load() }, [canView, load])
@@ -209,14 +221,28 @@ export default function WorkshopHistoryPage() {
         <p className="text-ink-600 text-sm mt-1">ติดตามสถานะแผน Workshop ของคุณทั้งหมด</p>
       </div>
 
-      <DocumentCalendar documents={plans.map(p=>({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount}))} onSelect={setInsight}/>
+      <WorkshopSchedule
+        plans={plans} month={calendarMonth} selectedDate={selectedDate} loading={loading} canCreate={canCreate}
+        onMonthChange={month => { setCalendarMonth(month); setSelectedDate('') }}
+        onDateChange={setSelectedDate}
+        onCreate={date => { setCreateDate(date); setNotice('') }}
+        onSelect={p => setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}
+      />
+      {createDate && canCreate && <WorkshopRequestForm key={createDate} initialDate={createDate} embedded onCancel={() => setCreateDate(null)} onCreated={data => {
+        setCreateDate(null)
+        setSelectedDate(data.plannedDate)
+        setCalendarMonth(data.plannedDate.slice(0, 7))
+        setNotice(`${data.message} (เลขที่เอกสาร ${data.planId}) — บันทึกไว้ในประวัตินี้แล้ว`)
+        load()
+      }} />}
       {insight&&<ExpenseInsight doc={insight} onClose={()=>setInsight(null)}/>}
-      {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
+      {notice && <p role="status" className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
       {error && !fillingPlan && !editingRequest && (
         <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>
       )}
 
       <div className="space-y-3">
+        <h2 className="text-lg font-semibold">ประวัติคำขอทั้งหมด</h2>
         {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
         {!loading && plans.length === 0 && (
           <div className="glass p-8 text-center text-ink-400 text-sm">ยังไม่มีคำขอ Workshop</div>
@@ -233,7 +259,7 @@ export default function WorkshopHistoryPage() {
                     <span className={`text-xs border rounded-full px-2.5 py-0.5 ${status.className}`}>{status.text}</span>
                   </div>
                   <p className="text-ink-900 text-sm mt-1">{p.store_name} — {p.province}</p>
-                  <p className="text-ink-500 text-xs">วันที่วางแผน: {p.planned_date}</p>
+                  <p className="text-ink-500 text-xs">วันที่วางแผน: {thaiDate(p.planned_date)}</p>
                   {p.status === 'rejected' && p.admin_note && (
                     <p className="text-rose text-xs mt-1">เหตุผล: {p.admin_note}</p>
                   )}
@@ -244,7 +270,7 @@ export default function WorkshopHistoryPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button className="btn-ghost text-xs" onClick={()=>setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}>Insight</button>
+                  <button className="btn-ghost text-xs" onClick={()=>setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}>ดูรายละเอียด</button>
                   {p.attachment_path&&<button className="btn-ghost text-xs" onClick={()=>openAttachment(p.attachment_path).catch(e=>setError(e.message))}>ไฟล์แนบ</button>}
                   {p.status === 'awaiting_sales_data' && (
                     <button onClick={() => openFillForm(p)} className="btn-primary text-xs px-4 py-2">กรอกข้อมูลหลังงาน</button>
@@ -365,8 +391,7 @@ export default function WorkshopHistoryPage() {
                   <StoreSearchDropdown selectedStore={editStore} onSelect={setEditStore} />
                 </div>
                 <div>
-                  <label className="block text-xs text-ink-600 mb-1">วันที่วางแผนจัดงาน *</label>
-                  <input type="date" className="glass-input w-full" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                  <ThaiDateInput value={editDate} onChange={setEditDate} required />
                 </div>
                 {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
                 <div className="flex justify-end gap-2">
@@ -380,7 +405,7 @@ export default function WorkshopHistoryPage() {
               <div className="space-y-4">
                 <div className="bg-white/60 border border-black/[0.06] rounded-xl p-4 space-y-2 text-sm">
                   <p><span className="text-ink-500">ร้านค้าใหม่:</span> {editStore?.name}</p>
-                  <p><span className="text-ink-500">วันที่ใหม่:</span> {editDate}</p>
+                  <p><span className="text-ink-500">วันที่ใหม่:</span> {thaiDate(editDate)}</p>
                 </div>
                 {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
                 <div className="flex justify-end gap-2">
