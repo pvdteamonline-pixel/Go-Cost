@@ -2,27 +2,18 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import ExpenseInsight from '../components/ExpenseInsight'
-import { groupExpenseDocuments, DOCUMENT_STATUS } from '../lib/expenseSummary'
 import ExpenseEditModal from '../components/ExpenseEditModal'
+import ExpensePdfButton from '../components/ExpensePdfButton'
+import { DocumentStatus } from '../components/ExpenseDocument'
+import Icon from '../components/Icon'
+import { groupExpenseDocuments } from '../lib/expenseSummary'
+import { expenseDocument, documentMoney } from '../lib/expenseDocument'
+import '../components/ExpenseDocument.css'
 
-function formatBaht(n) {
-  return (n ?? 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function formatThaiDate(isoDate) {
-  if (!isoDate) return ''
-  const d = new Date(isoDate)
-  if (isNaN(d.getTime())) return isoDate
-  const day = String(d.getDate()).padStart(2, '0')
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const year = d.getFullYear() + 543
-  return `${day}/${month}/${year}`
-}
-
-export default function ExpenseHistoryPage({onNavigate}) {
+export default function ExpenseHistoryPage({ onNavigate }) {
   const { currentUser } = useAuth()
-  const [requests,setRequests]=useState([])
-  const [month,setMonth]=useState('')
+  const [requests, setRequests] = useState([])
+  const [month, setMonth] = useState('')
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -30,99 +21,77 @@ export default function ExpenseHistoryPage({onNavigate}) {
   const [expandedDoc, setExpandedDoc] = useState(null)
   const [editingDoc, setEditingDoc] = useState(null)
   const [notice, setNotice] = useState('')
-
+  const [openMenu, setOpenMenu] = useState(null)
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const { data, error: err } = await supabase.rpc('get_operational_report', {p_actor_id:currentUser.id})
-    setLoading(false)
-    if (err) {
+    try {
+      const { data, error: err } = await supabase.rpc('get_operational_report', { p_actor_id: currentUser.id })
+      if (err) throw err
+      setRows(data?.expenses ?? [])
+      setRequests(data?.requests ?? [])
+    } catch (err) {
       setError('เกิดข้อผิดพลาด: ' + err.message)
-      return
-    }
-    setRows(data?.expenses ?? []); setRequests(data?.requests ?? [])
+      setRows([])
+      setRequests([])
+    } finally { setLoading(false) }
   }, [currentUser.id])
-
   useEffect(() => { load() }, [load])
-
+  useEffect(() => {
+    if (!openMenu) return
+    const close = event => { if (event.key === 'Escape' || (event.type === 'pointerdown' && !event.target.closest('.expense-row-menu'))) setOpenMenu(null) }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', close)
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close) }
+  }, [openMenu])
   const documents = useMemo(() => {
-    let list = groupExpenseDocuments(rows,requests).filter(d=>!month||d.eventDate?.startsWith(month))
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      list = list.filter((d) => d.docNo.toLowerCase().includes(q) || d.storeName.toLowerCase().includes(q))
-    }
-    return list
-  }, [rows, search, requests, month])
+    const query = search.trim().toLowerCase()
+    return groupExpenseDocuments(rows, requests).map(expenseDocument)
+      .filter(doc => (!month || doc.eventDate?.startsWith(month)) && (!query || String(doc.docNo ?? '').toLowerCase().includes(query) || String(doc.storeName ?? '').toLowerCase().includes(query)))
+      .sort((a, b) => String(b.eventDate ?? '').localeCompare(String(a.eventDate ?? '')) || String(b.docNo).localeCompare(String(a.docNo), undefined, { numeric: true }))
+  }, [rows, requests, month, search])
+  const selected = documents.find(doc => doc.docNo === expandedDoc)
 
-  async function handleRequestDelete(docNo) {
+  function edit(doc) { setExpandedDoc(null); setOpenMenu(null); setEditingDoc(doc) }
+  async function requestDelete(docNo) {
+    setOpenMenu(null)
     if (!confirm(`ยืนยันส่งคำขอลบเอกสาร ${docNo}? (ต้องรอผู้มีสิทธิ์อนุมัติ)`)) return
-    const { data, error: err } = await supabase.rpc('request_delete_record', {
-      p_doc_number: docNo,
-      p_requested_by: currentUser?.id ?? null,
-    })
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setNotice(data.message);load()
+    try {
+      const { data, error: err } = await supabase.rpc('request_delete_record', { p_doc_number: docNo, p_requested_by: currentUser.id })
+      if (err) throw err
+      if (!data?.success) throw new Error(data?.message || 'ส่งคำขอไม่สำเร็จ')
+      setExpandedDoc(null)
+      setNotice(data.message)
+      await load()
+    } catch (err) { setError('เกิดข้อผิดพลาด: ' + err.message); setExpandedDoc(null) }
   }
-
-  return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex flex-wrap gap-3 items-center justify-between">
-        <div>
-          <h1 className="font-display italic text-3xl text-ink-900">ประวัติรายการ</h1>
-          <p className="text-ink-600 text-sm mt-1">การแก้ไข/ลบต้องส่งคำขอและรอผู้มีสิทธิ์อนุมัติ</p>
-        </div>
-        <input
-          className="glass-input text-sm w-64"
-          placeholder="ค้นหาเลขที่เอกสาร / ชื่อร้าน..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-3"><input aria-label="เดือนประวัติรายการ" type="month" value={month} onChange={e=>setMonth(e.target.value)} className="glass-input"/><button className="btn-ghost" onClick={()=>setMonth('')}>ทุกเดือน</button><button className="btn-ghost" onClick={load}>รีเฟรช</button><button className="btn-ghost" onClick={()=>onNavigate('expense-report')}>รายงาน / ปฏิทิน</button><button className="btn-primary" onClick={()=>onNavigate('expense-entry')}>+ สร้างเอกสาร</button></div>
-      {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
-      {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
-      {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
-
-      {!loading && documents.length === 0 && (
-        <div className="glass p-10 text-center text-ink-500 text-sm">ยังไม่มีรายการค่าใช้จ่าย</div>
-      )}
-
-      <div className="space-y-3">
-        {documents.map((doc) => (
-          <div key={doc.docNo} className="glass glass-card-hover p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="doc-badge">{doc.docNo}</span>
-                <div>
-                  <p className="text-ink-900 text-sm">{doc.storeName}</p>
-                  <p className="text-ink-500 text-xs">{formatThaiDate(doc.eventDate)} · {doc.items.length} รายการ · {DOCUMENT_STATUS[doc.status]}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-gold-dark font-display italic text-lg">ค่าใช้จ่าย {formatBaht(doc.expense)} · รายได้ {formatBaht(doc.income)}</span>
-                <button onClick={() => setExpandedDoc(expandedDoc === doc.docNo ? null : doc.docNo)} className="btn-ghost text-xs px-3 py-1.5">
-                  Insight
-                </button>
-                <button onClick={() => setEditingDoc(doc)} className="btn-ghost text-xs px-3 py-1.5">ขอแก้ไข</button>
-                <button onClick={() => handleRequestDelete(doc.docNo)} className="text-rose text-xs hover:underline">ขอลบ</button>
-              </div>
-            </div>
-
-
-          </div>
-        ))}
-      </div>
-
-      {expandedDoc && documents.find(d=>d.docNo===expandedDoc)&&<ExpenseInsight doc={documents.find(d=>d.docNo===expandedDoc)} onClose={()=>setExpandedDoc(null)}/>}
-      {editingDoc && (
-        <ExpenseEditModal
-          doc={editingDoc}
-          onClose={() => setEditingDoc(null)}
-          onSubmitted={(message) => { setNotice(message); setEditingDoc(null); load() }}
-        />
-      )}
+  return <div className="expense-history">
+    <div className="expense-page-heading"><div><p className="expense-breadcrumb">ค่าใช้จ่าย / ประวัติรายการ</p><h1>ประวัติรายการ</h1></div><button className="expense-button expense-button-primary" onClick={() => onNavigate('expense-entry')}><Icon name="plus" size={17} />สร้างเอกสาร</button></div>
+    <div className="expense-toolbar">
+      <label className="expense-search"><Icon name="search" size={18} /><input aria-label="ค้นหาเลขที่เอกสาร / ชื่อร้าน" placeholder="ค้นหาเลขที่เอกสาร / ชื่อร้าน" value={search} onChange={event => setSearch(event.target.value)} /></label>
+      <input className="expense-month" type="month" aria-label="เดือนประวัติรายการ" value={month} onChange={event => setMonth(event.target.value)} />
+      <button className="expense-button" onClick={() => setMonth('')} aria-pressed={!month}>ทุกเดือน</button>
+      <button className="expense-button expense-refresh" aria-label="รีเฟรชประวัติรายการ" title="รีเฟรช" disabled={loading} onClick={load}><Icon name="refresh" size={18} /></button>
+      <button className="expense-button expense-report-link" onClick={() => onNavigate('expense-report')}><Icon name="calendar" size={17} />รายงาน / ปฏิทิน</button>
     </div>
-  )
+    {notice && <p role="status" className="expense-notice">{notice}</p>}
+    {error && <p role="alert" className="expense-alert">{error}</p>}
+    <section className="expense-history-panel" aria-label="รายการเอกสาร" aria-busy={loading}>
+      <div className="expense-table-caption"><span>{loading ? 'กำลังโหลด…' : `${documents.length} เอกสาร`}</span><span>หน่วย: บาท</span></div>
+      {!loading && !!documents.length && <div className="expense-table-scroll"><table className="expense-history-table">
+        <thead><tr><th scope="col">เลขที่เอกสาร / ร้านค้า</th><th scope="col">วันที่</th><th scope="col">สถานะ</th><th scope="col" className="expense-number">ค่าใช้จ่าย</th><th scope="col" className="expense-number">รายได้บริษัท</th><th scope="col"><span className="expense-sr-only">การดำเนินการ</span></th></tr></thead>
+        <tbody>{documents.map(doc => <tr key={doc.docNo} className={expandedDoc === doc.docNo ? 'is-selected' : ''}>
+          <td><button className="expense-document-link" onClick={() => setExpandedDoc(doc.docNo)}>{doc.docNo}</button><small>{doc.storeName || '—'}</small></td><td>{doc.dateLabel}</td><td><DocumentStatus doc={doc} /></td>
+          <td className="expense-number">{documentMoney(doc.expense)}</td><td className="expense-number">{documentMoney(doc.income)}</td>
+          <td><div className="expense-row-actions"><button className="expense-text-button" aria-label={`Insight ${doc.docNo}`} onClick={() => setExpandedDoc(doc.docNo)}><Icon name="eye" size={17} />Insight</button><ExpensePdfButton doc={doc} compact onError={setError} />
+            <div className="expense-row-menu"><button className="expense-text-button" aria-label={`ตัวเลือก ${doc.docNo}`} aria-expanded={openMenu === doc.docNo} onClick={() => setOpenMenu(openMenu === doc.docNo ? null : doc.docNo)}><Icon name="more" size={18} /></button>{openMenu === doc.docNo && <div className="expense-menu-options"><button onClick={() => edit(doc)}>ขอแก้ไข</button><button className="expense-negative" onClick={() => requestDelete(doc.docNo)}>ขอลบ</button></div>}</div>
+          </div></td>
+        </tr>)}</tbody>
+      </table></div>}
+      {!loading && !documents.length && <p className="expense-empty">{error ? 'ไม่สามารถโหลดรายการได้ กรุณารีเฟรชอีกครั้ง' : search || month ? 'ไม่พบเอกสารตามตัวกรอง' : 'ยังไม่มีรายการค่าใช้จ่าย'}</p>}
+    </section>
+    <p className="expense-history-footnote"><Icon name="info" size={15} />การแก้ไข/ลบต้องส่งคำขอและรอผู้มีสิทธิ์อนุมัติ</p>
+    {selected && <ExpenseInsight doc={selected} onClose={() => setExpandedDoc(null)} onEdit={edit} onRequestDelete={requestDelete} />}
+    {editingDoc && <ExpenseEditModal doc={editingDoc} onClose={() => setEditingDoc(null)} onSubmitted={message => { setNotice(message); setEditingDoc(null); load() }} />}
+  </div>
 }
