@@ -1,0 +1,15 @@
+.users-management form { scroll-margin-top: 20px; }
+.users-management input, .users-management select { min-width: 0; max-width: 100%; }
+.users-management .um-delete-confirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px; border: 1px solid #e8b4b1; border-radius: 12px; color: #9e322e; background: #fdecea; font-size: 14px; }
+.users-management .um-delete-confirm .btn-primary { background: #c33b35; }
+.users-management .um-actions button { min-height: 44px; }
+.users-management button:disabled { cursor: not-allowed; }
+@media(max-width:760px) {
+  .users-management input, .users-management select { font-size: 16px; }
+  .users-management table, .users-management tbody, .users-management tr, .users-management td { display: block; width: 100%; }
+  .users-management thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .users-management tr { padding: 14px 0; }
+  .users-management td { padding: 6px 16px; overflow-wrap: anywhere; }
+  .users-management td[data-label]::before { content: attr(data-label); display: inline-block; color: #617988; min-width: 64px; font-size: 12px; margin-right: 8px; }
+  .users-management .um-actions { text-align: left; white-space: normal; }
+}

@@ -1,3 +1,4 @@
+import WorkshopRequestDetails from './WorkshopRequestDetails'
 import { baht, DOCUMENT_STATUS } from '../lib/expenseSummary'
 import { openAttachment } from '../lib/expenseAttachments'
 import { useState, useEffect, useRef } from 'react'
@@ -24,6 +25,7 @@ export default function ExpenseInsight({doc,onClose}) {
   const files=[...new Set((doc.items??[]).map(it=>it.attachment_url??it.attachmentUrl).filter(Boolean).concat(doc.attachment_path?[doc.attachment_path]:[]))]
   return <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}><section ref={dialog} role="dialog" aria-modal="true" aria-label={`Insight ${doc.docNo}`} className="glass-solid p-6 w-full max-w-4xl max-h-[90vh] overflow-auto space-y-4" onClick={e=>e.stopPropagation()}>
     <div className="flex justify-between gap-3"><div><span className="doc-badge">{doc.docNo}</span><h2 className="text-xl mt-2">{doc.storeName}</h2><p className="text-sm text-ink-500">{doc.eventDate} · {DOCUMENT_STATUS[doc.status]??doc.status}</p></div><button className="btn-ghost" onClick={onClose} aria-label="ปิด Insight">ปิด</button></div>
+    {doc.type==='Workshop' && <WorkshopRequestDetails plan={doc} />}
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{[['ค่าใช้จ่าย',doc.expense],['รายได้บริษัท',doc.income],['ส่วนต่างสุทธิ',doc.net],['ยอดขาย Workshop ของร้าน',doc.storeSales]].map(([title,n])=><div key={title} className="glass p-3"><p className="text-xs text-ink-500">{title}</p><strong>{n==null?'—':baht(n)}</strong></div>)}</div>
     <p className="text-sm">ผู้เข้างาน {doc.attendees??'—'} คน · วันทำงาน {doc.workDays??'—'} · {doc.internalNote||'ไม่มีหมายเหตุ'}</p>
     {doc.type==='Workshop'&&<p className="text-sm">ยอดขาย Workshop เป็นยอดของร้าน แสดงแยกจากรายได้บริษัท และไม่บวกรวมซ้ำกับเอกสาร PV</p>}

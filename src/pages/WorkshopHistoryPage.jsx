@@ -4,19 +4,12 @@ import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import WorkshopSchedule from '../components/WorkshopSchedule'
 import WorkshopRequestForm from '../components/WorkshopRequestForm'
-import ThaiDateInput from '../components/ThaiDateInput'
-import { localDateISO, thaiDate } from '../lib/thaiDates'
+import { localDateISO } from '../lib/thaiDates'
 import ExpenseInsight from '../components/ExpenseInsight'
 import { openAttachment } from '../lib/expenseAttachments'
-import StoreSearchDropdown from '../components/StoreSearchDropdown'
 
-const STATUS_LABEL = {
-  pending_approval: { text: 'รออนุมัติ', className: 'text-gold-dark bg-gold-pale border-gold/30' },
-  rejected: { text: 'ถูกปฏิเสธ', className: 'text-rose bg-rose-pale border-rose/30' },
-  awaiting_sales_data: { text: 'รอเซลล์อัพเดตข้อมูล', className: 'text-ocean bg-ocean-pale border-ocean/30' },
-  completed: { text: 'เสร็จสิ้น', className: 'text-sage bg-sage-pale border-sage/30' },
-}
-const UNKNOWN_STATUS = { text: 'ไม่ทราบสถานะ', className: 'text-ink-500 bg-ink-100 border-black/10' }
+import { WORKSHOP_TYPES, WORKSHOP_GROUPS, WORKSHOP_STATUS, approvalGroup, groupWorkshopPlans, monthLabel, formatMoney } from '../lib/workshopRequest'
+import '../components/WorkshopRequest.css'
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10MB
 
@@ -48,10 +41,9 @@ export default function WorkshopHistoryPage() {
 
   // ฟอร์มแก้ไขคำขอ (ร้าน/วันที่)
   const [editingRequest, setEditingRequest] = useState(null)
-  const [editStep, setEditStep] = useState('form') // 'form' | 'confirm'
-  const [editStore, setEditStore] = useState(null)
-  const [editDate, setEditDate] = useState('')
-  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [monthFilter, setMonthFilter] = useState('')
 
   // ยืนยันลบ (double confirm แบบ inline)
   const [confirmingDeleteId, setConfirmingDeleteId] = useState(null)
@@ -66,7 +58,7 @@ export default function WorkshopHistoryPage() {
     setLoading(true)
     setError('')
     try {
-      const { data, error: err } = await supabase.rpc('get_workshop_plans', { p_actor_id: currentUser?.id ?? null })
+      const { data, error: err } = await supabase.rpc('get_workshop_plans_v2', { p_actor_id: currentUser?.id ?? null })
       if (err) throw new Error(err.message)
       setPlans((data ?? []).filter(p => currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id))
     } catch (err) {
@@ -157,38 +149,7 @@ export default function WorkshopHistoryPage() {
   }
 
   // ── แก้ไขคำขอ (ร้าน/วันที่) ──────────────────────────
-  function openEditRequest(plan) {
-    setEditingRequest(plan)
-    setEditStep('form')
-    setEditStore({ id: plan.store_id, name: plan.store_name, province: plan.province, region: plan.region, assigned_sales_name: plan.assigned_sales_name })
-    setEditDate(plan.planned_date)
-    setError('')
-  }
-
-  function goToEditConfirm(e) {
-    e.preventDefault()
-    setError('')
-    if (!editStore) return setError('กรุณาเลือกร้านค้า')
-    if (!editDate) return setError('กรุณาเลือกวันที่วางแผนจัดงาน')
-    setEditStep('confirm')
-  }
-
-  async function handleConfirmEditRequest() {
-    setEditSubmitting(true)
-    setError('')
-    const { data, error: err } = await supabase.rpc('update_workshop_plan_request', {
-      p_plan_id: editingRequest.id,
-      p_store_id: editStore.id,
-      p_planned_date: editDate,
-      p_actor_id: currentUser?.id ?? null,
-    })
-    setEditSubmitting(false)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setNotice(data.message)
-    setEditingRequest(null)
-    load()
-  }
+  function openEditRequest(plan) { setEditingRequest(plan); setError('') }
 
   // ── ลบ (double confirm inline) ──────────────────────────
   async function handleConfirmDelete(plan) {
@@ -205,6 +166,8 @@ export default function WorkshopHistoryPage() {
     load()
   }
 
+  const groupedPlans = groupWorkshopPlans(plans, { search, type: typeFilter, month: monthFilter })
+
   if (!canView) {
     return (
       <div className="max-w-2xl mx-auto glass p-10 text-center">
@@ -215,12 +178,11 @@ export default function WorkshopHistoryPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="font-display italic text-3xl text-ink-900">ประวัติเสนอ Workshop</h1>
-        <p className="text-ink-600 text-sm mt-1">ติดตามสถานะแผน Workshop ของคุณทั้งหมด</p>
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="wh-heading"><div><h1>ประวัติคำขอทั้งหมด</h1><p className="text-sm text-ink-500 mt-1">จัดกลุ่มตามเดือนที่จัดงานและสถานะอนุมัติ</p></div>
+        {canCreate && <button className="btn-primary" onClick={() => { setCreateDate(localDateISO()); setNotice('') }}>+ สร้างคำขอ Workshop ใหม่</button>}
       </div>
-
+      <details className="glass wh-calendar"><summary>ตารางนัดหมาย Workshop · เปิดปฏิทิน</summary>
       <WorkshopSchedule
         plans={plans} month={calendarMonth} selectedDate={selectedDate} loading={loading} canCreate={canCreate}
         onMonthChange={month => { setCalendarMonth(month); setSelectedDate('') }}
@@ -228,6 +190,7 @@ export default function WorkshopHistoryPage() {
         onCreate={date => { setCreateDate(date); setNotice('') }}
         onSelect={p => setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}
       />
+      </details>
       {createDate && canCreate && <WorkshopRequestForm key={createDate} initialDate={createDate} embedded onCancel={() => setCreateDate(null)} onCreated={data => {
         setCreateDate(null)
         setSelectedDate(data.plannedDate)
@@ -241,52 +204,50 @@ export default function WorkshopHistoryPage() {
         <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>
       )}
 
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold">ประวัติคำขอทั้งหมด</h2>
-        {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
-        {!loading && plans.length === 0 && (
-          <div className="glass p-8 text-center text-ink-400 text-sm">ยังไม่มีคำขอ Workshop</div>
-        )}
-        {plans.map((p) => {
-          const status = STATUS_LABEL[p.status] || UNKNOWN_STATUS
-          const hasSalesData = p.sales_data_submitted_at != null
-          return (
-            <div key={p.id} className="glass p-4 space-y-2">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="doc-badge">{p.id}</span>
-                    <span className={`text-xs border rounded-full px-2.5 py-0.5 ${status.className}`}>{status.text}</span>
-                  </div>
-                  <p className="text-ink-900 text-sm mt-1">{p.store_name} — {p.province}</p>
-                  <p className="text-ink-500 text-xs">วันที่วางแผน: {thaiDate(p.planned_date)}</p>
-                  {p.status === 'rejected' && p.admin_note && (
-                    <p className="text-rose text-xs mt-1">เหตุผล: {p.admin_note}</p>
-                  )}
-                  {hasSalesData && (
-                    <p className="text-ink-500 text-xs mt-1">
-                      คนเข้างาน: {p.attendees ?? '-'} · ยอดขายดันเข้าร้านค้า: {formatBaht(p.sales_push_amount)} · ยอดขาย Workshop: {formatBaht(p.workshop_sales_amount)}
-                    </p>
-                  )}
+      <div className="wh-filters">
+        <input aria-label="ค้นหาคำขอ" className="glass-input" placeholder="ค้นหาชื่อร้าน / ลูกค้า / สถาบัน" value={search} onChange={e => setSearch(e.target.value)} />
+        <select aria-label="กรองประเภทงาน" className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="">ทุกประเภทงาน</option>{WORKSHOP_TYPES.map(type => <option key={type}>{type}</option>)}</select>
+        <select aria-label="กรองเดือนจัดงาน" className="glass-input" value={monthFilter} onChange={e => setMonthFilter(e.target.value)}><option value="">ทุกเดือน</option>{[...new Set(plans.map(p => p.planned_date?.slice(0,7)).filter(Boolean))].sort().map(month => <option key={month} value={month}>{monthLabel(month)}</option>)}</select>
+      </div>
+      {loading && <p role="status">กำลังโหลดคำขอ...</p>}
+      {!loading && !groupedPlans.length && <p className="glass p-8 text-center text-ink-500">ไม่พบคำขอตามตัวกรองที่เลือก</p>}
+      {groupedPlans.map(group => <section className="wh-month" key={group.month} aria-label={monthLabel(group.month)}>
+        <header className="wh-month-heading"><h2>{monthLabel(group.month)}</h2><span>วางแผนจัดงาน {group.count} รายการ</span></header>
+        {WORKSHOP_GROUPS.filter(statusGroup => group[statusGroup.key].length).map(statusGroup => <section key={statusGroup.key} className={'wh-group ' + statusGroup.key} aria-label={statusGroup.label}>
+          <h3>{statusGroup.label}<small>{group[statusGroup.key].length} รายการ</small></h3>
+          {group[statusGroup.key].map(p => {
+            const details = p.request_details
+            const hasSalesData = p.sales_data_submitted_at != null
+            return <article key={p.id} className="wh-card">
+              <div className="wh-card-top">
+                <div className="wh-date"><strong>{p.planned_date?.slice(8,10) || '—'}</strong><span>{monthLabel(p.planned_date?.slice(0,7) || '')}</span></div>
+                <div className="wh-card-body"><h4>{p.store_name}</h4>
+                  <p><span className="wh-type">{details?.event_type || 'Workshop'}</span>{details?.topic || 'ยังไม่มีหัวข้ออบรม'}</p>
+                  <p>{details?.start_time ? details.start_time + '–' + details.end_time + ' · ' : ''}{details?.venue || p.province || 'ยังไม่ระบุสถานที่'}</p>
+                  <p>{details ? details.expected_attendees + ' คน · งบประมาณ ' + formatMoney(details.estimated_cost) + ' บาท' : 'คำขอเดิม · ยังไม่มีรายละเอียดเพิ่มเติม'}</p>
+                  <p>{p.id}</p>
+                  {p.status === 'rejected' && p.admin_note && <p className="text-rose">เหตุผล: {p.admin_note}</p>}
+                  {hasSalesData && <p>คนเข้างานจริง {p.attendees ?? '—'} คน · ยอดขายดันเข้าร้านค้า {formatBaht(p.sales_push_amount)} · ยอดขาย Workshop {formatBaht(p.workshop_sales_amount)}</p>}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <span className={'wh-status ' + approvalGroup(p.status)}>{WORKSHOP_STATUS[p.status] || 'ไม่ทราบสถานะ'}</span>
+              </div>
+              <div className="wh-card-actions">
                   <button className="btn-ghost text-xs" onClick={()=>setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}>ดูรายละเอียด</button>
                   {p.attachment_path&&<button className="btn-ghost text-xs" onClick={()=>openAttachment(p.attachment_path).catch(e=>setError(e.message))}>ไฟล์แนบ</button>}
                   {p.status === 'awaiting_sales_data' && (
                     <button onClick={() => openFillForm(p)} className="btn-primary text-xs px-4 py-2">กรอกข้อมูลหลังงาน</button>
                   )}
-                  {canEdit && (
+                  {canEdit && (currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id) && (
                     <button onClick={() => openEditRequest(p)} className="btn-ghost text-xs px-3 py-1.5">แก้ไขคำขอ</button>
                   )}
-                  {canEdit && (
+                  {canEdit && (currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id) && (
                     <button onClick={() => openEditSalesForm(p)} className="btn-ghost text-xs px-3 py-1.5">แก้ไขข้อมูลหลังงาน</button>
                   )}
-                  {canDelete && (
+                  {canDelete && (currentUser?.role === 'ADMIN' || p.created_by === currentUser?.id) && (
                     <button onClick={() => setConfirmingDeleteId(p.id)} className="text-rose text-xs hover:underline px-1">ลบ</button>
                   )}
-                </div>
-              </div>
 
+              </div>
               {confirmingDeleteId === p.id && (
                 <div className="bg-rose-pale border border-rose/30 rounded-lg p-3 flex items-center justify-between gap-3">
                   <p className="text-rose text-sm">ยืนยันลบคำขอ {p.id} ใช่หรือไม่? การลบไม่สามารถย้อนกลับได้</p>
@@ -299,10 +260,10 @@ export default function WorkshopHistoryPage() {
                   </div>
                 </div>
               )}
-            </div>
-          )
-        })}
-      </div>
+            </article>
+          })}
+        </section>)}
+      </section>)}
 
       {/* ── Modal: กรอก/แก้ไขข้อมูลหลังงาน ── */}
       {fillingPlan && (
@@ -373,52 +334,9 @@ export default function WorkshopHistoryPage() {
         </div>
       )}
 
-      {/* ── Modal: แก้ไขคำขอ (ร้าน/วันที่) ── */}
-      {editingRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setEditingRequest(null)}>
-          <div className="glass-solid max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display italic text-xl text-ink-900">
-                แก้ไขคำขอ <span className="doc-badge ml-2">{editingRequest.id}</span>
-              </h2>
-              <button onClick={() => setEditingRequest(null)} className="text-ink-400 hover:text-ink-900">✕</button>
-            </div>
-
-            {editStep === 'form' && (
-              <form onSubmit={goToEditConfirm} className="space-y-4">
-                <div>
-                  <label className="block text-xs text-ink-600 mb-1">ร้านค้า *</label>
-                  <StoreSearchDropdown selectedStore={editStore} onSelect={setEditStore} />
-                </div>
-                <div>
-                  <ThaiDateInput value={editDate} onChange={setEditDate} required />
-                </div>
-                {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
-                <div className="flex justify-end gap-2">
-                  <button type="button" onClick={() => setEditingRequest(null)} className="btn-ghost text-sm">ยกเลิก</button>
-                  <button type="submit" className="btn-primary text-sm">ตรวจสอบก่อนบันทึก</button>
-                </div>
-              </form>
-            )}
-
-            {editStep === 'confirm' && (
-              <div className="space-y-4">
-                <div className="bg-white/60 border border-black/[0.06] rounded-xl p-4 space-y-2 text-sm">
-                  <p><span className="text-ink-500">ร้านค้าใหม่:</span> {editStore?.name}</p>
-                  <p><span className="text-ink-500">วันที่ใหม่:</span> {thaiDate(editDate)}</p>
-                </div>
-                {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
-                <div className="flex justify-end gap-2">
-                  <button onClick={() => setEditStep('form')} className="btn-ghost text-sm">แก้ไข</button>
-                  <button onClick={handleConfirmEditRequest} disabled={editSubmitting} className="btn-primary text-sm disabled:opacity-60">
-                    {editSubmitting ? 'กำลังบันทึก...' : 'ยืนยันการแก้ไข'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {editingRequest && <div className="wr-modal"><div className="wr-modal-content" role="dialog" aria-modal="true" aria-label="แก้ไขคำขอ">
+        <WorkshopRequestForm key={editingRequest.id} plan={editingRequest} embedded onCancel={() => setEditingRequest(null)} onCreated={data => { setNotice(data.message); setEditingRequest(null); load() }} />
+      </div></div>}
     </div>
   )
 }

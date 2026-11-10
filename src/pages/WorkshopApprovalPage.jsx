@@ -1,3 +1,4 @@
+import WorkshopRequestDetails from '../components/WorkshopRequestDetails'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
@@ -18,7 +19,7 @@ export default function WorkshopApprovalPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const { data, error: err } = await supabase.rpc('get_workshop_plans', { p_actor_id: currentUser?.id ?? null })
+    const { data, error: err } = await supabase.rpc('get_workshop_plans_v2', { p_actor_id: currentUser?.id ?? null })
     setLoading(false)
     if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
     setPlans((data ?? []).filter((p) => p.status === 'pending_approval'))
@@ -86,6 +87,7 @@ export default function WorkshopApprovalPage() {
               </div>
               <p className="text-ink-400 text-xs">ขอโดย {p.created_by} · {new Date(p.created_at).toLocaleString('th-TH')}</p>
             </div>
+            <WorkshopRequestDetails plan={p} />
             <div className="flex items-center gap-2">
               <button onClick={() => handleApprove(p.id)} disabled={busyId === p.id} className="btn-primary text-xs px-4 py-1.5 disabled:opacity-60">
                 {busyId === p.id ? 'กำลังดำเนินการ...' : 'อนุมัติ'}

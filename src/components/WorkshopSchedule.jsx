@@ -39,7 +39,7 @@ export default function WorkshopSchedule({ plans, month, onMonthChange, selected
     {selectedDate && <div className="ws-day-detail">
       <div className="ws-day-heading"><h3>{thaiDate(selectedDate)}</h3>{canCreate && <button type="button" className="btn-primary text-sm" onClick={() => onCreate(selectedDate)}>+ สร้างคำขอ Workshop ใหม่</button>}</div>
       {!selectedPlans.length && !loading && <p className="text-sm text-ink-500">ยังไม่มีคำขอในวันนี้</p>}
-      {selectedPlans.map(plan => <button type="button" key={plan.id} className="ws-plan" onClick={() => onSelect(plan)}><span><strong>{plan.store_name}</strong><small>{plan.id}</small></span><span className="ws-status">{DOCUMENT_STATUS[plan.status] || 'ไม่ทราบสถานะ'}</span></button>)}
+      {selectedPlans.map(plan => <button type="button" key={plan.id} className="ws-plan" onClick={() => onSelect(plan)}><span><strong>{plan.store_name}</strong><small>{plan.request_details?.event_type || 'Workshop'} · {plan.request_details?.start_time ? plan.request_details.start_time + '–' + plan.request_details.end_time + ' · ' : ''}{plan.id}</small></span><span className="ws-status">{DOCUMENT_STATUS[plan.status] || 'ไม่ทราบสถานะ'}</span></button>)}
     </div>}
   </section>
 }
