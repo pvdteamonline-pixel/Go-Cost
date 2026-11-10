@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import ExpenseInsight from '../components/ExpenseInsight'
-import ExpenseEditModal from '../components/ExpenseEditModal'
+import ExpenseEditPage from './ExpenseEditPage'
 import ExpensePdfButton from '../components/ExpensePdfButton'
 import { DocumentStatus } from '../components/ExpenseDocument'
 import Icon from '../components/Icon'
@@ -65,6 +65,7 @@ export default function ExpenseHistoryPage({ onNavigate }) {
       await load()
     } catch (err) { setError('เกิดข้อผิดพลาด: ' + err.message); setExpandedDoc(null) }
   }
+  if (editingDoc) return <ExpenseEditPage key={editingDoc.docNo} doc={editingDoc} onClose={() => setEditingDoc(null)} onSubmitted={message => { setNotice(message); setEditingDoc(null); load() }} />
   return <div className="expense-history">
     <div className="expense-page-heading"><div><p className="expense-breadcrumb">ค่าใช้จ่าย / ประวัติรายการ</p><h1>ประวัติรายการ</h1></div><button className="expense-button expense-button-primary" onClick={() => onNavigate('expense-entry')}><Icon name="plus" size={17} />สร้างเอกสาร</button></div>
     <div className="expense-toolbar">
@@ -92,6 +93,5 @@ export default function ExpenseHistoryPage({ onNavigate }) {
     </section>
     <p className="expense-history-footnote"><Icon name="info" size={15} />การแก้ไข/ลบต้องส่งคำขอและรอผู้มีสิทธิ์อนุมัติ</p>
     {selected && <ExpenseInsight doc={selected} onClose={() => setExpandedDoc(null)} onEdit={edit} onRequestDelete={requestDelete} />}
-    {editingDoc && <ExpenseEditModal doc={editingDoc} onClose={() => setEditingDoc(null)} onSubmitted={message => { setNotice(message); setEditingDoc(null); load() }} />}
   </div>
 }
