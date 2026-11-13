@@ -3,6 +3,22 @@ import assert from 'node:assert/strict'
 import { groupWorkshopHistory, workshopStoreSummary } from './workshopHistory.js'
 const plan = (id, store_id, planned_date, status, extra={}) => ({ id, store_id, planned_date, status, store_name:`ร้าน ${store_id}`, ...extra })
 
+test('year filter keeps every month in the chosen year, composes with search/type and scopes totals', () => {
+  const input=[plan('a',1,'2025-01-01','pending_approval'),plan('b',1,'2025-12-31','completed',{request_details:{event_type:'Training Partner'}}),plan('c',2,'2026-01-01','completed'),{id:'d',status:'pending_approval'}]
+  const original=structuredClone(input)
+  const selected=groupWorkshopHistory(input,{year:'2025'})
+  assert.deepEqual(selected.years.map(year=>year.label),['พ.ศ. 2568'])
+  assert.deepEqual(selected.years[0].months.map(month=>month.label),['ธันวาคม','มกราคม'])
+  assert.equal(selected.summary.stores,1)
+  assert.deepEqual(selected.summary.requestCounts,{approved:1,pending:1,other:0})
+  assert.equal(groupWorkshopHistory(input,{year:'2025',search:'ร้าน 1',type:'Training Partner'}).summary.requests,1)
+  assert.equal(groupWorkshopHistory(input,{year:'2025',search:'ร้าน 2'}).summary.requests,0)
+  assert.deepEqual(groupWorkshopHistory(input,{year:'2024'}).years,[])
+  assert.equal(groupWorkshopHistory(input,{year:'unknown'}).summary.requests,1)
+  assert.equal(groupWorkshopHistory(input,{year:''}).summary.requests,4)
+  assert.deepEqual(input,original)
+})
+
 test('year/month hierarchy sorts by event date newest first and preserves all requests', () => {
   const input=[plan('a',1,'2025-12-31','completed'),plan('b',2,'2026-10-02','pending_approval'),plan('c',3,'2026-11-01','awaiting_sales_data')]
   const original=structuredClone(input), result=groupWorkshopHistory(input)

@@ -5,6 +5,7 @@ import { hasPagePermission } from '../lib/permissions'
 import { groupWorkshopHistory } from '../lib/workshopHistory'
 import { WORKSHOP_TYPES } from '../lib/workshopRequest'
 import WorkshopHistoryTree from '../components/WorkshopHistoryTree'
+import WorkshopYearFilter from '../components/WorkshopYearFilter'
 import WorkshopApprovalDialog from '../components/WorkshopApprovalDialog'
 import Icon from '../components/Icon'
 import './WorkshopHistoryPage.css'
@@ -14,6 +15,7 @@ export default function WorkshopApprovalPage() {
   const [plans, setPlans] = useState([]), [loading, setLoading] = useState(true)
   const [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [selected, setSelected] = useState(null), [decisionError, setDecisionError] = useState(''), [busy, setBusy] = useState(false)
+  const [yearFilter, setYearFilter] = useState('')
   const [search, setSearch] = useState(''), [typeFilter, setTypeFilter] = useState('')
   const decisionLock = useRef(false), loadSequence = useRef(0)
   const invalidateLoad = useCallback(() => { loadSequence.current++ }, [])
@@ -36,7 +38,8 @@ export default function WorkshopApprovalPage() {
     else { setPlans([]); setLoading(false) }
     return invalidateLoad
   }, [canApprove, load, invalidateLoad])
-  const history = useMemo(() => groupWorkshopHistory(plans, { search, type: typeFilter }), [plans, search, typeFilter])
+  const availableYears = useMemo(() => groupWorkshopHistory(plans).years, [plans])
+  const history = useMemo(() => groupWorkshopHistory(plans, { search, type: typeFilter, year: yearFilter }), [plans, search, typeFilter, yearFilter])
 
   async function handleDecision(id, action, note = '') {
     if (decisionLock.current || !canApprove || !plans.some(plan => plan.id === id && plan.status === 'pending_approval')) return
@@ -61,14 +64,15 @@ export default function WorkshopApprovalPage() {
     {error && <p role="alert" className="expense-alert">{error}</p>}
     <div className="whc-toolbar"><p className="whc-overview" aria-live="polite">{loading || error ? '—' : <strong>{history.summary.requests} รายการ · {history.years.filter(year => year.key !== 'unknown').length} ปี</strong>}</p>
       <label className="whc-search"><Icon name="search" size={19}/><input aria-label="ค้นหาคำขอ" placeholder="ค้นหาเลขที่คำขอ / ชื่อร้าน" value={search} onChange={event => setSearch(event.target.value)}/></label>
+      <WorkshopYearFilter years={availableYears} value={yearFilter} onChange={setYearFilter}/>
       <select aria-label="กรองประเภทงาน" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}><option value="">ทุกประเภทงาน</option>{WORKSHOP_TYPES.map(type => <option key={type}>{type}</option>)}</select>
       <button className="icon-button" aria-label="รีเฟรชรายการอนุมัติ Workshop" disabled={loading || busy} onClick={load}><Icon name="refresh" size={19}/></button>
-      {(search || typeFilter) && <button className="whc-clear" onClick={() => { setSearch(''); setTypeFilter('') }}>ล้างตัวกรอง</button>}
+      {(search || typeFilter || yearFilter) && <button className="whc-clear" onClick={() => { setSearch(''); setTypeFilter(''); setYearFilter('') }}>ล้างตัวกรอง</button>}
     </div>
     <section aria-label="รายการอนุมัติ Workshop แยกปีและเดือน" aria-busy={loading}>
       {loading && <p className="document-empty" role="status">กำลังโหลดคำขอ...</p>}
-      {!loading && !history.years.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดรายการได้ กรุณาลองใหม่' : search || typeFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
-      {!loading && !!history.years.length && <WorkshopHistoryTree key={JSON.stringify([search, typeFilter])} years={history.years} countMode="requests" onSelect={plan => { setDecisionError(''); setSelected(plan) }} hasActions={() => false}/>}
+      {!loading && !history.years.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดรายการได้ กรุณาลองใหม่' : search || typeFilter || yearFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
+      {!loading && !!history.years.length && <WorkshopHistoryTree key={JSON.stringify([search, typeFilter, yearFilter])} years={history.years} countMode="requests" onSelect={plan => { setDecisionError(''); setSelected(plan) }} hasActions={() => false}/>}
     </section>
     {!loading && !error && !!history.years.length && <p className="whc-count-note">นับจำนวนคำขอในแต่ละปีและเดือน · ร้านเดียวกันอาจมีหลายรายการ</p>}
     {selected && <WorkshopApprovalDialog key={selected.id} plan={selected} busy={busy} error={decisionError} onClose={() => { if (!decisionLock.current) setSelected(null) }} onDecision={handleDecision}/>}

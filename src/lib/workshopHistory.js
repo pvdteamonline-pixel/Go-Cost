@@ -29,6 +29,7 @@ export function groupWorkshopHistory(plans, filters = {}) {
   for (const source of groupWorkshopPlans(plans, filters)) {
     const valid = /^\d{4}-(0[1-9]|1[0-2])$/.test(source.month) && Number(source.month.slice(0, 4)) > 0
     const yearKey = valid ? source.month.slice(0, 4) : 'unknown'
+    if (filters.year && yearKey !== filters.year) continue
     const monthKey = valid ? source.month : 'unknown'
     if (!years.has(yearKey)) years.set(yearKey, { key: yearKey, label: valid ? `พ.ศ. ${Number(yearKey) + 543}` : 'ไม่ระบุปี', months: new Map(), plans: [] })
     const year = years.get(yearKey)
