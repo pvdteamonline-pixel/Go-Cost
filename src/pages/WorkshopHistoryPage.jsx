@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
@@ -7,12 +7,13 @@ import WorkshopRequestForm from '../components/WorkshopRequestForm'
 import { localDateISO } from '../lib/thaiDates'
 import ExpenseInsight from '../components/ExpenseInsight'
 import { openAttachment } from '../lib/expenseAttachments'
-import DocumentGroupHeader from '../components/DocumentGroupHeader'
+import WorkshopHistoryTree from '../components/WorkshopHistoryTree'
+import { groupWorkshopHistory } from '../lib/workshopHistory'
 import Icon from '../components/Icon'
-import { documentDate } from '../lib/expenseDocument'
 
-import { WORKSHOP_TYPES, WORKSHOP_GROUPS, WORKSHOP_STATUS, approvalGroup, groupWorkshopPlans, monthLabel, formatMoney } from '../lib/workshopRequest'
+import { WORKSHOP_TYPES } from '../lib/workshopRequest'
 import '../components/WorkshopRequest.css'
+import './WorkshopHistoryPage.css'
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10MB
 
@@ -46,8 +47,6 @@ export default function WorkshopHistoryPage() {
   const [editingRequest, setEditingRequest] = useState(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [monthFilter, setMonthFilter] = useState('')
-  const [closedGroups, setClosedGroups] = useState({})
 
   // ยืนยันลบ (double confirm แบบ inline)
   const [confirmingDeleteId, setConfirmingDeleteId] = useState(null)
@@ -174,9 +173,18 @@ export default function WorkshopHistoryPage() {
     load()
   }
 
-  const groupedPlans = groupWorkshopPlans(plans, { search, type: typeFilter, month: monthFilter })
-  const matchingPlans = groupedPlans.flatMap(group => WORKSHOP_GROUPS.flatMap(statusGroup => group[statusGroup.key]))
+  const history = useMemo(() => groupWorkshopHistory(plans, { search, type: typeFilter }), [plans, search, typeFilter])
   const planDocument = plan => ({ ...plan, docNo: plan.id, type: 'Workshop', storeName: plan.store_name, eventDate: plan.planned_date, income: plan.sales_push_amount, storeSales: plan.workshop_sales_amount })
+  const canManage = plan => plan.created_by === currentUser?.id || currentUser?.role === 'ADMIN'
+  const canSubmitSales = plan => plan.created_by === currentUser?.id && plan.status === 'awaiting_sales_data'
+  const hasActions = plan => !!plan.attachment_path || canSubmitSales(plan) || (canManage(plan) && (canEdit || canDelete))
+  const renderActions = plan => <>
+    {plan.attachment_path && <button onClick={() => openAttachment(plan.attachment_path).catch(e => setError(e.message))}>ไฟล์แนบ</button>}
+    {canSubmitSales(plan) && <button className="primary" onClick={() => openFillForm(plan)}>กรอกข้อมูลหลังงาน</button>}
+    {canEdit && canManage(plan) && <><button onClick={() => openEditRequest(plan)}>แก้ไขคำขอ</button><button onClick={() => openEditSalesForm(plan)}>แก้ไขข้อมูลหลังงาน</button></>}
+    {canDelete && canManage(plan) && <button className="danger" onClick={() => setConfirmingDeleteId(plan.id)}>ลบ</button>}
+  </>
+  const renderConfirmation = plan => <div className="whc-delete-confirm"><p>ยืนยันลบคำขอ {plan.id} ใช่หรือไม่? การลบไม่สามารถย้อนกลับได้</p><div><button onClick={() => setConfirmingDeleteId(null)}>ยกเลิก</button><button className="danger" disabled={deleteSubmitting} onClick={() => handleConfirmDelete(plan)}>{deleteSubmitting ? 'กำลังลบ...' : 'ยืนยันลบ'}</button></div></div>
 
   if (!canView) {
     return (
@@ -188,19 +196,10 @@ export default function WorkshopHistoryPage() {
   }
 
   return (
-    <div className="workshop-history-g1 document-workspace space-y-5">
-      <div className="wh-heading"><div><h1>ประวัติเสนอ Workshop</h1><p className="text-sm text-ink-500 mt-1">จัดกลุ่มตามเดือนและสถานะ · แสดงรายการตามสิทธิ์ดูประวัติ</p></div>
-        {canCreate && <button className="btn-primary" onClick={() => { setCreateDate(localDateISO()); setNotice('') }}>+ สร้างคำขอ Workshop ใหม่</button>}
+    <div className="workshop-history-c1">
+      <div className="whc-heading"><div><h1>ประวัติเสนอ Workshop</h1><p>ดูรายการร้านค้า แยกตามปี เดือน และสถานะอนุมัติ</p></div>
+        {canCreate && <button className="btn-primary" onClick={() => { setCreateDate(localDateISO()); setNotice('') }}><Icon name="plus" size={17}/>สร้างคำขอ</button>}
       </div>
-      <details className="document-section wh-calendar"><summary>ตารางนัดหมาย Workshop · เปิดปฏิทิน</summary>
-      <WorkshopSchedule
-        plans={plans} month={calendarMonth} selectedDate={selectedDate} loading={loading} canCreate={canCreate}
-        onMonthChange={month => { setCalendarMonth(month); setSelectedDate('') }}
-        onDateChange={setSelectedDate}
-        onCreate={date => { setCreateDate(date); setNotice('') }}
-        onSelect={p => setInsight({...p,docNo:p.id,type:'Workshop',storeName:p.store_name,eventDate:p.planned_date,income:p.sales_push_amount,storeSales:p.workshop_sales_amount})}
-      />
-      </details>
       {createDate && canCreate && <WorkshopRequestForm key={createDate} initialDate={createDate} embedded onCancel={() => setCreateDate(null)} onCreated={data => {
         setCreateDate(null)
         setSelectedDate(data.plannedDate)
@@ -214,53 +213,24 @@ export default function WorkshopHistoryPage() {
         <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>
       )}
 
-      <section className="history-summary" aria-label="สรุปคำขอตามตัวกรอง">
-        <div><span>คำขอทั้งหมด</span><strong>{loading || error ? '—' : matchingPlans.length} รายการ</strong></div>
-        {WORKSHOP_GROUPS.map(group => <div key={group.key}><span>{group.label}</span><strong>{loading || error ? '—' : matchingPlans.filter(plan => approvalGroup(plan.status) === group.key).length}</strong></div>)}
+      <div className="whc-toolbar">
+        <p className="whc-overview" aria-live="polite">{loading || error ? '—' : <><strong>{history.summary.stores} ร้าน · {history.years.filter(year => year.key !== 'unknown').length} ปี</strong>{history.summary.requests !== history.summary.stores && <small>{history.summary.requests} คำขอ</small>}</>}</p>
+        <label className="whc-search"><Icon name="search" size={19}/><input aria-label="ค้นหาคำขอ" placeholder="ค้นหาเลขที่คำขอ / ชื่อร้าน" value={search} onChange={event => setSearch(event.target.value)}/></label>
+        <select aria-label="กรองประเภทงาน" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}><option value="">ทุกประเภทงาน</option>{WORKSHOP_TYPES.map(type => <option key={type}>{type}</option>)}</select>
+        <button className="icon-button" aria-label="รีเฟรชประวัติ Workshop" disabled={loading} onClick={load}><Icon name="refresh" size={19}/></button>
+        {(search || typeFilter) && <button className="whc-clear" onClick={() => { setSearch(''); setTypeFilter('') }}>ล้างตัวกรอง</button>}
+      </div>
+      <section aria-label="ประวัติ Workshop แยกปีและเดือน" aria-busy={loading}>
+        {loading && <p className="document-empty" role="status">กำลังโหลดคำขอ...</p>}
+        {!loading && !history.years.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดประวัติได้ กรุณาลองใหม่' : search || typeFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
+        {!loading && !!history.years.length && <WorkshopHistoryTree key={JSON.stringify([search, typeFilter])} years={history.years} onSelect={plan => setInsight(planDocument(plan))} hasActions={hasActions} renderActions={renderActions} confirmingDeleteId={confirmingDeleteId} renderConfirmation={renderConfirmation}/>}
       </section>
-      <section className="grouped-table-panel" aria-label="ประวัติคำขอ Workshop" aria-busy={loading}>
-        <div className="wh-filters">
-          <input aria-label="ค้นหาคำขอ" className="glass-input" placeholder="ค้นหาเลขที่คำขอ / ร้านค้า / หัวข้ออบรม" value={search} onChange={e => setSearch(e.target.value)} />
-          <select aria-label="กรองประเภทงาน" className="glass-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="">ทุกประเภทงาน</option>{WORKSHOP_TYPES.map(type => <option key={type}>{type}</option>)}</select>
-          <select aria-label="กรองเดือนจัดงาน" className="glass-input" value={monthFilter} onChange={e => setMonthFilter(e.target.value)}><option value="">ทุกเดือน</option>{[...new Set(plans.map(p => p.planned_date?.slice(0,7)).filter(Boolean))].sort().reverse().map(month => <option key={month} value={month}>{monthLabel(month)}</option>)}</select>
-          <button className="icon-button" aria-label="รีเฟรชประวัติ Workshop" disabled={loading} onClick={load}><Icon name="refresh" size={18} /></button>
-        </div>
-        {loading && <p role="status" className="document-empty">กำลังโหลดคำขอ...</p>}
-        {!loading && !groupedPlans.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดประวัติได้ กรุณาลองใหม่' : search || typeFilter || monthFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
-        {!loading && !!groupedPlans.length && <div className="grouped-table-scroll"><table className="grouped-table workshop-history-table">
-          <thead><tr><th>เลขที่คำขอ / ร้านค้า</th><th>วันจัดงาน</th><th>สถานะ</th><th>ประเภทงาน</th><th className="number">งบประมาณ (บาท)</th><th><span className="expense-sr-only">การดำเนินการ</span></th></tr></thead>
-          {groupedPlans.map(group => WORKSHOP_GROUPS.filter(statusGroup => group[statusGroup.key].length).map(statusGroup => {
-            const key = `${group.month}-${statusGroup.key}`
-            return <tbody key={key}>
-              <DocumentGroupHeader label={`${monthLabel(group.month)} · ${statusGroup.label}`} count={group[statusGroup.key].length} unit="รายการ" colSpan={6} open={!closedGroups[key]} onToggle={() => setClosedGroups(previous => ({ ...previous, [key]: !previous[key] }))} />
-              {!closedGroups[key] && group[statusGroup.key].map(plan => {
-                const details = plan.request_details
-                const own = plan.created_by === currentUser?.id
-                const manage = own || currentUser?.role === 'ADMIN'
-                const doc = planDocument(plan)
-                return <Fragment key={plan.id}>
-                  <tr className="document-data-row" data-document={plan.id}>
-                    <td><button className="row-title" onClick={() => setInsight(doc)}>{plan.id}</button><span>{plan.store_name || '—'}</span>{details?.topic && <small>{details.topic}</small>}</td>
-                    <td className="whitespace-nowrap">{documentDate(plan.planned_date)}{details?.start_time && <small>{details.start_time}–{details.end_time}</small>}</td>
-                    <td><span className={`wh-status ${approvalGroup(plan.status)}`}>{WORKSHOP_STATUS[plan.status] || 'ไม่ทราบสถานะ'}</span>{plan.status === 'rejected' && plan.admin_note && <small>{plan.admin_note}</small>}</td>
-                    <td>{details?.event_type || 'Workshop'}<small>{details?.expected_attendees != null ? `คาดการณ์ ${details.expected_attendees} คน` : 'คำขอเดิม'}</small></td>
-                    <td className="number">{details?.estimated_cost == null ? '—' : formatMoney(details.estimated_cost)}{plan.sales_data_submitted_at != null && <small>รายได้บริษัท {formatBaht(plan.sales_push_amount)}<br />ยอดขายร้าน {formatBaht(plan.workshop_sales_amount)}</small>}</td>
-                    <td><div className="grouped-row-actions">
-                      <button aria-label={`Insight ${plan.id}`} onClick={() => setInsight(doc)}><Icon name="eye" size={16} />Insight</button>
-                      {plan.attachment_path && <button onClick={() => openAttachment(plan.attachment_path).catch(e => setError(e.message))}>ไฟล์แนบ</button>}
-                      {own && plan.status === 'awaiting_sales_data' && <button className="primary" onClick={() => openFillForm(plan)}>กรอกข้อมูลหลังงาน</button>}
-                      {canEdit && manage && <><button onClick={() => openEditRequest(plan)}>แก้ไขคำขอ</button><button onClick={() => openEditSalesForm(plan)}>แก้ไขข้อมูลหลังงาน</button></>}
-                      {canDelete && manage && <button className="danger" onClick={() => setConfirmingDeleteId(plan.id)}>ลบ</button>}
-                    </div></td>
-                  </tr>
-                  {confirmingDeleteId === plan.id && <tr><td colSpan={6}><div className="inline-confirm"><p>ยืนยันลบคำขอ {plan.id} ใช่หรือไม่? การลบไม่สามารถย้อนกลับได้</p><div><button className="btn-ghost" onClick={() => setConfirmingDeleteId(null)}>ยกเลิก</button><button className="btn-ghost text-rose" disabled={deleteSubmitting} onClick={() => handleConfirmDelete(plan)}>{deleteSubmitting ? 'กำลังลบ...' : 'ยืนยันลบ'}</button></div></div></td></tr>}
-                </Fragment>
-              })}
-            </tbody>
-          }))}
-        </table></div>}
-        {!loading && !error && <p className="grouped-table-footer">{matchingPlans.length} คำขอตามตัวกรอง · งบประมาณเป็นยอดคาดการณ์ รายได้หลังงานแสดงแยกจากงบประมาณ</p>}
-      </section>
+      {!loading && !error && !!history.years.length && <p className="whc-count-note">จำนวนร้านนับไม่ซ้ำในแต่ละกลุ่ม · ร้านที่มีรหัสใช้รหัสร้าน ร้านที่กรอกเองใช้ชื่อร้าน{history.summary.overlapping && ' · ร้านเดียวกันอาจมีคำขออยู่ในหลายสถานะ'}{history.summary.unknownStores > 0 && ` · อีก ${history.summary.unknownStores} คำขอไม่ระบุร้าน`}</p>}
+      <details className="document-section whc-calendar"><summary>ตารางนัดหมาย Workshop · เปิดปฏิทิน</summary>
+        <WorkshopSchedule plans={plans} month={calendarMonth} selectedDate={selectedDate} loading={loading} canCreate={canCreate}
+          onMonthChange={month => { setCalendarMonth(month); setSelectedDate('') }} onDateChange={setSelectedDate}
+          onCreate={date => { setCreateDate(date); setNotice('') }} onSelect={plan => setInsight(planDocument(plan))}/>
+      </details>
 
       {/* ── Modal: กรอก/แก้ไขข้อมูลหลังงาน ── */}
       {fillingPlan && (
