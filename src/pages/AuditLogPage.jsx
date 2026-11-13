@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 import { THAI_MONTHS } from '../lib/constants'
+import DocumentNavigation from '../components/DocumentNavigation'
+import DocumentGroupHeader from '../components/DocumentGroupHeader'
 
 function fixMojibakeText(str) {
   if (!str || typeof str !== 'string') return str
@@ -27,7 +29,7 @@ function fixMojibakeText(str) {
   return str
 }
 
-export default function AuditLogPage() {
+export default function AuditLogPage({ onNavigate }) {
   const { currentUser } = useAuth()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +41,7 @@ export default function AuditLogPage() {
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [closedGroups, setClosedGroups] = useState({})
 
   const canView = hasPagePermission(currentUser, 'audit-log')
   const isAdmin = currentUser?.role === 'ADMIN'
@@ -119,9 +122,16 @@ export default function AuditLogPage() {
 
   const currentYear = new Date().getFullYear()
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i)
+  const dayGroups = new Map()
+  for (const log of filtered) {
+    const date = new Date(log.timestamp)
+    const label = Number.isNaN(date.getTime()) ? 'ไม่ระบุวันที่' : date.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' })
+    if (!dayGroups.has(label)) dayGroups.set(label, [])
+    dayGroups.get(label).push(log)
+  }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="document-workspace audit-workspace space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">บันทึกกิจกรรม</h1>
@@ -146,21 +156,22 @@ export default function AuditLogPage() {
             <option value="">ทุกเดือน</option>
             {THAI_MONTHS.map((name, i) => <option key={i + 1} value={i + 1}>{name}</option>)}
           </select>
-          <input className="glass-input text-sm w-56" placeholder="ค้นหา user / ชื่อเล่น / action..."
+          <input className="glass-input text-sm w-56" placeholder="ค้นหาผู้ใช้ / ชื่อเล่น / การกระทำ"
                  value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
       </div>
 
+      <DocumentNavigation active="audit-log" onNavigate={onNavigate} />
       {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
       {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
       {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
 
-      <div className="glass overflow-hidden">
+      <div className="grouped-table-panel grouped-table-scroll">
         {!loading && filtered.length === 0 && (
           <p className="text-ink-400 text-sm text-center py-10">ไม่มีบันทึกกิจกรรม</p>
         )}
         {!loading && filtered.length > 0 && (
-          <table className="w-full text-sm">
+          <table className="grouped-table">
             <thead>
               <tr className="border-b border-black/10 text-left text-ink-500 text-xs uppercase tracking-wider">
                 <th className="px-4 py-3">เวลา</th>
@@ -171,8 +182,9 @@ export default function AuditLogPage() {
                 {isAdmin && <th className="px-4 py-3"></th>}
               </tr>
             </thead>
-            <tbody>
-              {filtered.map((l) => (
+            {[...dayGroups].map(([label, entries]) => <tbody key={label}>
+              <DocumentGroupHeader label={label} count={entries.length} colSpan={isAdmin ? 6 : 5} unit="กิจกรรม" open={!closedGroups[label]} onToggle={() => setClosedGroups(previous => ({ ...previous, [label]: !previous[label] }))} />
+              {!closedGroups[label] && entries.map((l) => (
                 <tr key={l.log_id} className="border-b border-black/5 last:border-0 align-top">
                   <td className="px-4 py-3 text-ink-500 whitespace-nowrap">{new Date(l.timestamp).toLocaleString('th-TH')}</td>
                   <td className="px-4 py-3 text-ink-900">{l.user_id}</td>
@@ -199,7 +211,7 @@ export default function AuditLogPage() {
                   )}
                 </tr>
               ))}
-            </tbody>
+            </tbody>)}
           </table>
         )}
       </div>

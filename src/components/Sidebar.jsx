@@ -4,10 +4,13 @@ import { NAV_GROUPS } from '../lib/constants'
 import { hasPagePermission } from '../lib/permissions'
 import Icon from './Icon'
 import DataStatusBox from './DataStatusBox'
+import SidebarResizeHandle from './SidebarResizeHandle'
+import { readSidebarWidth } from '../lib/sidebarSize'
 
-export default function Sidebar({ active, onNavigate, collapsed, onToggle, mobile, onClose }) {
+export default function Sidebar({ active, onNavigate, collapsed, onToggle, mobile, onClose, onCollapsedChange }) {
   const { currentUser, logout } = useAuth()
   const [expanded, setExpanded] = useState({})
+  const [width, setWidth] = useState(readSidebarWidth)
   const panel = useRef(null)
   const profile = useRef(null)
   const groups = NAV_GROUPS.map(group => ({ ...group, items: group.items.filter(item => hasPagePermission(currentUser, item.key)) })).filter(group => group.items.length)
@@ -41,7 +44,7 @@ export default function Sidebar({ active, onNavigate, collapsed, onToggle, mobil
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
   }
-  return <aside ref={panel} id="main-navigation" className={`app-sidebar ${collapsed ? 'is-collapsed' : ''}`} role={mobile && !collapsed ? 'dialog' : undefined} aria-modal={mobile && !collapsed ? true : undefined} aria-label="เมนูหลัก" inert={mobile && collapsed} onKeyDown={handleKeys}>
+  return <aside ref={panel} id="main-navigation" style={{ '--sidebar-width': `${width}px` }} className={`app-sidebar ${collapsed ? 'is-collapsed' : ''}`} role={mobile && !collapsed ? 'dialog' : undefined} aria-modal={mobile && !collapsed ? true : undefined} aria-label="เมนูหลัก" inert={mobile && collapsed} onKeyDown={handleKeys}>
     <div className="sidebar-brand"><span className="sidebar-brand-copy">GoCost</span><button className="icon-button sidebar-toggle" onClick={onToggle} aria-label={collapsed ? 'เปิดเมนู' : mobile ? 'ปิดเมนู' : 'พับเมนู'} title={collapsed ? 'เปิดเมนู' : 'พับเมนู'} aria-expanded={!collapsed} aria-controls="main-navigation"><Icon name={collapsed ? 'menu' : mobile ? 'close' : 'collapse'} size={20} /></button></div>
     <nav className="sidebar-nav" aria-label="หมวดงาน">
       {groups.map((group, index) => {
@@ -56,5 +59,6 @@ export default function Sidebar({ active, onNavigate, collapsed, onToggle, mobil
       <summary aria-label={`บัญชีผู้ใช้ ${name}`}><span className="profile-avatar">{Array.from(name)[0]}</span><span className="profile-copy"><strong>{name}</strong><small>{role}</small></span><span className="profile-chevron"><Icon name="chevronDown" size={16} /></span></summary>
       <div className="profile-menu"><p>{name} · {role}</p><DataStatusBox /><button className="profile-logout" onClick={logout}><Icon name="logout" size={16} />ออกจากระบบ</button></div>
     </details></div>
+    {!mobile && <SidebarResizeHandle width={width} collapsed={collapsed} onWidthChange={setWidth} onCollapsedChange={onCollapsedChange} />}
   </aside>
 }

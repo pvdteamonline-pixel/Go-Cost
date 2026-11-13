@@ -76,6 +76,10 @@ function Shell() {
     query.addEventListener('change', update)
     return () => query.removeEventListener('change', update)
   }, [])
+  const setSidebarCollapsed = value => {
+    setDesktopCollapsed(value)
+    try { localStorage.setItem('gocost_sidebar_collapsed', String(value)) } catch { /* Optional storage. */ }
+  }
   const toggleSidebar = () => {
     if (mobile) setMobileOpen(value => !value)
     else setDesktopCollapsed(value => {
@@ -93,7 +97,7 @@ function Shell() {
   return (
     <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       {mobile && mobileOpen && <button className="sidebar-scrim" aria-label="ปิดเมนูพื้นหลัง" tabIndex={-1} onClick={() => setMobileOpen(false)} />}
-      <Sidebar active={active} onNavigate={navigate} collapsed={collapsed} onToggle={toggleSidebar} mobile={mobile} onClose={() => setMobileOpen(false)} />
+      <Sidebar active={active} onNavigate={navigate} collapsed={collapsed} onToggle={toggleSidebar} mobile={mobile} onClose={() => setMobileOpen(false)} onCollapsedChange={setSidebarCollapsed} />
       <div className="app-content" inert={mobile && mobileOpen}>
         <header className="app-header">
           <button className="icon-button mobile-menu" onClick={toggleSidebar} aria-label="เปิดเมนูหลัก" aria-expanded={!collapsed}><Icon name="menu" /></button>
