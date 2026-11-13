@@ -285,7 +285,7 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
               onChange={(e) => setDashYear(Number(e.target.value))}
             >
               {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-                <option key={y} value={y}>{y}</option>
+                <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>
               ))}
             </select>
           </div>
@@ -451,7 +451,7 @@ export default function ExecutiveDashboardPage({ onNavigate }) {
               onChange={(e) => setRptYear(Number(e.target.value))}
             >
               {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-                <option key={y} value={y}>{y}</option>
+                <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>
               ))}
             </select>
           </div>

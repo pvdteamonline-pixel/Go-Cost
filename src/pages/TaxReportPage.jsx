@@ -91,7 +91,7 @@ export default function TaxReportPage() {
           </select>
           <select className="glass-input text-sm w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
+              <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>
             ))}
           </select>
           <button onClick={() => window.print()} className="btn-ghost text-sm">พิมพ์หน้าเว็บ</button>
@@ -184,7 +184,7 @@ export default function TaxReportPage() {
       {/* งบทดลองคร่าวๆ (Mock) — สำหรับอ้างอิงประกอบการยื่นภาษี */}
       <div className="glass p-5 space-y-3 border border-amber-200/60 print:hidden">
         <div className="flex items-center justify-between">
-          <h3 className="text-ink-900 font-medium">งบทดลอง (Trial Balance) อ้างอิง</h3>
+          <h3 className="text-ink-900 font-medium">งบทดลอง อ้างอิง</h3>
           <span className="text-amber-600 text-xs bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">ข้อมูลตัวอย่าง</span>
         </div>
         <p className="text-ink-400 text-xs">{MOCK_TB_SUMMARY.label} — ใช้อ้างอิงหยอดคู่กับงบ P&amp;L ด้านบน</p>

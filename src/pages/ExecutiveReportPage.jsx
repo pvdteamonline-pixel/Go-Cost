@@ -270,7 +270,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
           <select aria-label="ปีรายงาน" className="glass-input text-sm w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
               <option key={y} value={y}>
-                {y}
+                พ.ศ. {Number(y) + 543}
               </option>
             ))}
           </select>

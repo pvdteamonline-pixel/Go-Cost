@@ -228,7 +228,7 @@ export default function PLReportPage() {
         <div>
           <h1 className="font-display italic text-3xl text-ink-900">ประมาณการกำไรขาดทุน</h1>
           <p className="text-ink-500 text-sm mt-1">
-            P&amp;L Report รายเดือน ปี {year} {month ? `(เดือน ${MONTH_SHORT[Number(month) - 1]})` : ''} — ข้อมูลจากไฟล์ที่นำเข้าระบบ
+            รายงานกำไรขาดทุนรายเดือน ปี พ.ศ. {year + 543} {month ? `(เดือน ${MONTH_SHORT[Number(month) - 1]})` : ''} — ข้อมูลจากไฟล์ที่นำเข้าระบบ
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -255,7 +255,7 @@ export default function PLReportPage() {
             onChange={(e) => setYear(Number(e.target.value))}
           >
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-              <option key={y} value={y}>{y}</option>
+              <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>
             ))}
           </select>
         </div>

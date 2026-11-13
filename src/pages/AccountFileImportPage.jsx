@@ -15,7 +15,7 @@ function formatBaht(n) {
 
 const FILE_TYPES = [
   { value: 'pl_estimate', label: 'ประมาณการกำไรขาดทุน', hint: '1 ไฟล์มีครบ 12 เดือน (คอลัมน์ ม.ค.-ธ.ค.) — ใช้ขับเคลื่อนแดชบอร์ด/รายงานผู้บริหาร/รายงานสรรพากร' },
-  { value: 'trial_balance', label: 'งบทดลอง (Trial Balance)', hint: 'ไฟล์ export ตรงจาก Express ต่อ 1 ช่วงเวลา — ใช้ดูที่หน้า "งบทดลอง" และเทียบยอดที่หน้า "เทียบยอด (Reconciliation)"' },
+  { value: 'trial_balance', label: 'งบทดลอง', hint: 'ไฟล์ส่งออกจาก Express ต่อ 1 ช่วงเวลา — ใช้ดูที่หน้า "งบทดลอง" และเทียบยอดที่หน้า "เทียบยอด"' },
 ]
 
 const MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
@@ -981,7 +981,7 @@ export default function AccountFileImportPage() {
           <div>
             <label className="block text-xs text-ink-600 mb-1">ปี</label>
             <select className="glass-input text-sm" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => <option key={y} value={y}>{y}</option>)}
+              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>)}
             </select>
           </div>
           <div className="flex-1 min-w-[240px]">
@@ -1255,7 +1255,7 @@ export default function AccountFileImportPage() {
       </div>
 
       {fileType === 'trial_balance' && (
-        <p className="text-ink-400 text-xs">💡 ไปดู/ลบงบทดลองที่นำเข้าไว้แล้วได้ที่หน้า "งบทดลอง (Trial Balance)"</p>
+        <p className="text-ink-400 text-xs">💡 ไปดู/ลบงบทดลองที่นำเข้าไว้แล้วได้ที่หน้า "งบทดลอง"</p>
       )}
     </div>
 

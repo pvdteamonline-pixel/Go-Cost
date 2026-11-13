@@ -24,7 +24,7 @@ function DeleteModal({ period, onCancel, onConfirm, busy }) {
               <div>
                 <h3 className="text-ink-900 font-medium">ยืนยันการลบงบทดลอง</h3>
                 <p className="text-ink-600 text-sm mt-1">
-                  คุณกำลังจะลบ <span className="font-medium text-rose">{THAI_MONTHS[period.month - 1]} {period.year}</span>
+                  คุณกำลังจะลบ <span className="font-medium text-rose">{THAI_MONTHS[period.month - 1]} {Number(period.year) + 543}</span>
                 </p>
                 <p className="text-ink-400 text-xs mt-1">การดำเนินการนี้ไม่สามารถยกเลิกได้</p>
               </div>
@@ -140,7 +140,7 @@ export default function TrialBalancePage({ onNavigate }) {
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display italic text-3xl text-ink-900">งบทดลอง (Trial Balance)</h1>
+          <h1 className="font-display italic text-3xl text-ink-900">งบทดลอง</h1>
           <p className="text-ink-600 text-sm mt-1">แสดงยอด Debit / Credit แยกตามกลุ่มรหัสบัญชี — นำเข้าจากไฟล์ Express จริง</p>
         </div>
         <button onClick={() => setUploadHintOpen((o) => !o)} className="btn-ghost text-sm">+ นำเข้างบทดลองใหม่</button>
@@ -228,7 +228,7 @@ export default function TrialBalancePage({ onNavigate }) {
               return (
                 <div key={`${p.year}-${p.month}`} className={`p-3 cursor-pointer transition-colors ${isSelected ? 'bg-ocean-pale' : 'hover:bg-black/[0.02]'}`}>
                   <button onClick={() => setSelectedPeriod({ year: p.year, month: p.month })} className="w-full text-left">
-                    <p className="text-ink-900 text-sm font-medium">งบทดลอง {THAI_MONTHS[p.month - 1]} {p.year}</p>
+                    <p className="text-ink-900 text-sm font-medium">งบทดลอง {THAI_MONTHS[p.month - 1]} {Number(p.year) + 543}</p>
                     <p className="text-ink-400 text-xs mt-0.5">{p.line_count} รายการ · {p.uploaded_by_name || '-'}</p>
                   </button>
                   <button onClick={() => setDeletingPeriod(p)} className="text-rose text-xs hover:underline mt-1.5">🗑️ ลบงบนี้</button>
@@ -246,7 +246,7 @@ export default function TrialBalancePage({ onNavigate }) {
           {!reportLoading && selectedPeriod && report && (
             <div className="glass p-6 space-y-5">
               <div className="text-center border-b border-black/10 pb-4">
-                <h2 className="font-display italic text-2xl text-ink-900">งบทดลอง {THAI_MONTHS[selectedPeriod.month - 1]} {selectedPeriod.year}</h2>
+                <h2 className="font-display italic text-2xl text-ink-900">งบทดลอง {THAI_MONTHS[selectedPeriod.month - 1]} {Number(selectedPeriod.year) + 543}</h2>
               </div>
 
               <div className="overflow-x-auto">

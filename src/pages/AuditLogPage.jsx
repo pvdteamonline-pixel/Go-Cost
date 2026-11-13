@@ -140,7 +140,7 @@ export default function AuditLogPage() {
           )}
           <select className="glass-input text-sm" value={year} onChange={(e) => setYear(e.target.value)}>
             <option value="">ทุกปี</option>
-            {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+            {yearOptions.map((y) => <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>)}
           </select>
           <select className="glass-input text-sm" value={month} onChange={(e) => setMonth(e.target.value)}>
             <option value="">ทุกเดือน</option>

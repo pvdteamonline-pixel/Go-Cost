@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import Icon from '../components/Icon'
 import ExecutiveReportPage from './ExecutiveReportPage'
 import PLReportPage from './PLReportPage'
 import TaxReportPage from './TaxReportPage'
@@ -6,9 +7,9 @@ import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 
 const TABS = [
-  { id: 'exec-report', label: 'รายงานผู้บริหาร', icon: '📊' },
-  { id: 'pl-report', label: 'รายงาน P&L (ประมาณการกำไรขาดทุน)', icon: '📈' },
-  { id: 'tax-report', label: 'รายงานสำหรับกรมสรรพากร', icon: '🧾' },
+  { id: 'exec-report', label: 'รายงานผู้บริหาร', icon: 'chart' },
+  { id: 'pl-report', label: 'รายงาน P&L (ประมาณการกำไรขาดทุน)', icon: 'chart' },
+  { id: 'tax-report', label: 'รายงานสำหรับกรมสรรพากร', icon: 'file' },
 ]
 
 export default function ReportsHubPage({ initialTab = 'exec-report', onNavigate }) {
@@ -32,7 +33,7 @@ export default function ReportsHubPage({ initialTab = 'exec-report', onNavigate 
   return (
     <div className="space-y-6">
       {/* Box Bar Header for Tab Switching */}
-      <div className="bg-white/70 backdrop-blur-md p-2 rounded-2xl border border-black/10 shadow-sm flex flex-wrap gap-2">
+      <div className="app-tabs" aria-label="หมวดหน้าที่เกี่ยวข้อง">
         {TABS.map((tab) => {
           const isAllowed = hasPagePermission(currentUser, tab.id)
           const isActive = currentTab === tab.id
@@ -42,13 +43,10 @@ export default function ReportsHubPage({ initialTab = 'exec-report', onNavigate 
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 min-w-[200px] flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
-                isActive
-                  ? 'bg-gradient-to-r from-ocean/10 to-ocean/5 text-ink-900 font-semibold shadow-sm border border-ocean/25 ring-2 ring-ocean/5'
-                  : 'text-ink-600 hover:text-ink-900 hover:bg-white/80 border border-transparent'
-              }`}
+              className={`app-tab ${isActive ? 'is-active' : ''}`}
+              aria-pressed={isActive}
             >
-              <span className="text-base">{tab.icon}</span>
+              <Icon name={tab.icon} size={17} />
               <span>{tab.label}</span>
             </button>
           )

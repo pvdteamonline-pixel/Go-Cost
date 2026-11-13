@@ -97,7 +97,7 @@ export default function BudgetManagementPage() {
 
     if (err) return setError('เกิดข้อผิดพลาดในการบันทึก: ' + err.message)
     if (data && !data.success) return setError(data.message)
-    setNotice(`บันทึก Limit ของ "${label}" ปี ${year} สำเร็จเรียบร้อย`)
+    setNotice(`บันทึกวงเงินของ "${label}" ปี ${year} สำเร็จเรียบร้อย`)
   }
 
   const totalBudget = CATEGORIES.reduce((sum, c) => sum + (Number(budgets[c]) || 0), 0)
@@ -120,12 +120,12 @@ export default function BudgetManagementPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display italic text-3xl text-ink-900">ตั้งงบประมาณ & Set Limit Control</h1>
+          <h1 className="font-display italic text-3xl text-ink-900">ตั้งงบประมาณและวงเงิน</h1>
           <p className="text-ink-600 text-sm mt-1">กำหนด Budget Cap รายหมวด และ Sub-limits รหัสบัญชี (Hotel Pricing, Other)</p>
         </div>
         <select className="glass-input text-sm w-32" value={year} onChange={(e) => setYear(Number(e.target.value))}>
           {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-            <option key={y} value={y}>{y}</option>
+            <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>
           ))}
         </select>
       </div>
@@ -246,7 +246,7 @@ export default function BudgetManagementPage() {
         <div className="glass p-5 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="font-display italic text-xl text-ink-900">Set Limit รายรหัสบัญชีเฉพาะ</h3>
+              <h3 className="font-display italic text-xl text-ink-900">กำหนดวงเงินรายรหัสบัญชี</h3>
               <p className="text-ink-600 text-xs">เช่น กำหนดเพดานราคาโรงแรม (Hotel Pricing Cap), ค่า Content Cap</p>
             </div>
             <input

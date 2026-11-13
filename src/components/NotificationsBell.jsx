@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import Icon from './Icon'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 
@@ -42,8 +43,8 @@ export default function NotificationsBell() {
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)} className="relative btn-ghost px-3 py-2">
-        🔔
+      <button onClick={() => setOpen((o) => !o)} className="icon-button notification-toggle" aria-label="การแจ้งเตือน" aria-expanded={open}>
+        <Icon name="bell" size={20} />
         {unreadCount > 0 && (
           <span className="absolute -top-1.5 -right-1.5 bg-rose text-white text-[10px] rounded-full w-4.5 h-4.5 min-w-[18px] min-h-[18px] flex items-center justify-center">
             {unreadCount}
@@ -52,7 +53,7 @@ export default function NotificationsBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 glass-solid p-3 z-30 max-h-96 overflow-y-auto">
+        <div className="notification-panel absolute right-0 mt-2 w-80 glass-solid p-3 z-30 max-h-96 overflow-y-auto">
           <p className="text-ink-500 text-xs uppercase tracking-wider px-1 mb-2">การแจ้งเตือน</p>
           {notifications.length === 0 && (
             <p className="text-ink-400 text-sm text-center py-6">ไม่มีการแจ้งเตือน</p>

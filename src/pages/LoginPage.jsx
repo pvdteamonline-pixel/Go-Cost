@@ -17,7 +17,7 @@ export default function LoginPage() {
   }
   return <main className="login-scene">
     <section className="login-story" aria-label="GoCost">
-      <div className="login-brand"><img src="/logo.png" alt="โลโก้บริษัท"/><div><p className="brand-shimmer">GoCost</p><span>WORKSPACE</span></div></div>
+      <div className="login-brand"><img src="/logo.png" alt="โลโก้บริษัท"/><div><p className="brand-shimmer">GoCost</p><span>ระบบจัดการค่าใช้จ่าย</span></div></div>
       <div className="login-message"><h1>ทุกค่าใช้จ่าย<br/><span>ชัดเจนในที่เดียว</span></h1><p>จัดการค่าใช้จ่าย ติดตามเอกสาร<br/>และวางแผนงานขององค์กร</p>
         <div className="login-features">{[['cash','ค่าใช้จ่าย'],['chart','รายงาน'],['calendar','Workshop']].map(([icon,label])=><div key={label}><span><Icon name={icon}/></span><p>{label}</p></div>)}</div>
       </div>

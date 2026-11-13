@@ -376,7 +376,7 @@ export default function AccountGroupsPage() {
                   <div className="flex gap-2">
                     <select className="glass-input text-xs" value={reportYear} onChange={(e) => setReportYear(Number(e.target.value))}>
                       {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
-                        <option key={y} value={y}>{y}</option>
+                        <option key={y} value={y}>พ.ศ. {Number(y) + 543}</option>
                       ))}
                     </select>
                     <select className="glass-input text-xs" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)}>

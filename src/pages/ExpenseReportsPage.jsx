@@ -3,6 +3,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pi
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { baht, expenseSummary, groupExpenseDocuments, DOCUMENT_STATUS } from '../lib/expenseSummary'
+import ThaiMonthSelect from '../components/ThaiMonthSelect'
 import DocumentCalendar from '../components/DocumentCalendar'
 import ExpenseInsight from '../components/ExpenseInsight'
 import { hasPagePermission } from '../lib/permissions'
@@ -41,7 +42,7 @@ export function ExpenseReportsView({data,error='',loading=false,onRefresh,onNavi
     {loading?<p>กำลังโหลดข้อมูล…</p>:data&&<>
       <DocumentCalendar documents={documents} onSelect={setSelected}/>
       <section className="glass p-5 space-y-4"><h2 className="text-lg font-medium">สถานะเอกสารทั้งหมด · {documents.length} ใบ</h2>
-        <div className="flex flex-wrap gap-3"><input aria-label="ค้นหาเอกสาร" placeholder="เลขเอกสาร / ร้านค้า" className="glass-input" value={search} onChange={e=>setSearch(e.target.value)}/><input aria-label="เดือนรายงานค่าใช้จ่าย" type="month" className="glass-input" value={month} onChange={e=>setMonth(e.target.value)}/><button className="btn-ghost" onClick={()=>{setMonth('');setSearch('');setStatus('')}}>ล้างตัวกรอง</button></div>
+        <div className="flex flex-wrap gap-3"><input aria-label="ค้นหาเอกสาร" placeholder="เลขเอกสาร / ร้านค้า" className="glass-input" value={search} onChange={e=>setSearch(e.target.value)}/><ThaiMonthSelect label="เดือนรายงานค่าใช้จ่าย" value={month} dates={documents.map(doc=>doc.eventDate)} onChange={setMonth}/><button className="btn-ghost" onClick={()=>{setMonth('');setSearch('');setStatus('')}}>ล้างตัวกรอง</button></div>
         <div className="status-cards"><button aria-pressed={!status} className="glass p-3 text-left" onClick={()=>setStatus('')}><strong>{filtered.length}</strong><span>ทั้งหมดตามตัวกรอง</span></button>{Object.entries(DOCUMENT_STATUS).map(([key,label])=><button key={key} aria-pressed={status===key} className="glass p-3 text-left" onClick={()=>setStatus(status===key?'':key)}><strong>{filtered.filter(d=>d.status===key).length}</strong><span>{label}</span></button>)}</div>
       </section>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">{[['ค่าใช้จ่ายรวม',baht(totals.expense)],['รายได้ตามเอกสาร',baht(totals.income)],['เอกสารค่าใช้จ่าย',`${pvCount} ใบ`],['เฉลี่ยต่อเอกสาร',pvCount?baht(totals.expense/pvCount):'—'],['ส่วนต่างสุทธิ',baht(totals.net)]].map(([label,value])=><div className="glass p-4" key={label}><p className="text-xs text-ink-500">{label}</p><strong className="text-xl text-ocean">{value}</strong></div>)}</div>

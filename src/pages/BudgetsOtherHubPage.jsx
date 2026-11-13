@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import Icon from '../components/Icon'
 import BudgetManagementPage from './BudgetManagementPage'
 import ExternalExpensePage from './ExternalExpensePage'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
 
 const TABS = [
-  { id: 'budgets', label: 'ตั้งงบประมาณ', icon: '💰' },
-  { id: 'external-expenses', label: 'ค่าใช้จ่ายช่องทางภายนอก (Beautrium)', icon: '🛒' },
+  { id: 'budgets', label: 'ตั้งงบประมาณ', icon: 'cash' },
+  { id: 'external-expenses', label: 'ค่าใช้จ่ายช่องทางภายนอก (Beautrium)', icon: 'store' },
 ]
 
 export default function BudgetsOtherHubPage({ initialTab = 'budgets', onNavigate }) {
@@ -30,7 +31,7 @@ export default function BudgetsOtherHubPage({ initialTab = 'budgets', onNavigate
   return (
     <div className="space-y-6">
       {/* Box Bar Header for Tab Switching */}
-      <div className="bg-white/70 backdrop-blur-md p-2 rounded-2xl border border-black/10 shadow-sm flex flex-wrap gap-2">
+      <div className="app-tabs" aria-label="หมวดหน้าที่เกี่ยวข้อง">
         {TABS.map((tab) => {
           const isAllowed = hasPagePermission(currentUser, tab.id)
           const isActive = currentTab === tab.id
@@ -40,13 +41,10 @@ export default function BudgetsOtherHubPage({ initialTab = 'budgets', onNavigate
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 min-w-[200px] flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
-                isActive
-                  ? 'bg-gradient-to-r from-gold-pale to-amber-100/80 text-ink-900 font-semibold shadow-sm border border-gold/40 ring-2 ring-gold/20 scale-[1.01]'
-                  : 'text-ink-600 hover:text-ink-900 hover:bg-white/80 border border-transparent'
-              }`}
+              className={`app-tab ${isActive ? 'is-active' : ''}`}
+              aria-pressed={isActive}
             >
-              <span className="text-base">{tab.icon}</span>
+              <Icon name={tab.icon} size={17} />
               <span>{tab.label}</span>
             </button>
           )
