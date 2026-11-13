@@ -11,6 +11,7 @@ import WorkshopHistoryTree from '../components/WorkshopHistoryTree'
 import WorkshopYearFilter from '../components/WorkshopYearFilter'
 import { groupWorkshopHistory } from '../lib/workshopHistory'
 import Icon from '../components/Icon'
+import { THAI_MONTHS } from '../lib/constants'
 
 import { WORKSHOP_TYPES } from '../lib/workshopRequest'
 import '../components/WorkshopRequest.css'
@@ -46,6 +47,7 @@ export default function WorkshopHistoryPage() {
 
   // ฟอร์มแก้ไขคำขอ (ร้าน/วันที่)
   const [yearFilter, setYearFilter] = useState('')
+  const [monthFilter, setMonthFilter] = useState('')
   const [editingRequest, setEditingRequest] = useState(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
@@ -176,7 +178,7 @@ export default function WorkshopHistoryPage() {
   }
 
   const availableYears = useMemo(() => groupWorkshopHistory(plans).years, [plans])
-  const history = useMemo(() => groupWorkshopHistory(plans, { search, type: typeFilter, year: yearFilter }), [plans, search, typeFilter, yearFilter])
+  const history = useMemo(() => groupWorkshopHistory(monthFilter ? plans.filter(plan => plan.planned_date?.slice(5, 7) === monthFilter) : plans, { search, type: typeFilter, year: yearFilter }), [plans, search, typeFilter, yearFilter, monthFilter])
   const planDocument = plan => ({ ...plan, docNo: plan.id, type: 'Workshop', storeName: plan.store_name, eventDate: plan.planned_date, income: plan.sales_push_amount, storeSales: plan.workshop_sales_amount })
   const canManage = plan => plan.created_by === currentUser?.id || currentUser?.role === 'ADMIN'
   const canSubmitSales = plan => plan.created_by === currentUser?.id && plan.status === 'awaiting_sales_data'
@@ -219,15 +221,16 @@ export default function WorkshopHistoryPage() {
       <div className="whc-toolbar">
         <p className="whc-overview" aria-live="polite">{loading || error ? '—' : <><strong>{history.summary.stores} ร้าน · {history.years.filter(year => year.key !== 'unknown').length} ปี</strong>{history.summary.requests !== history.summary.stores && <small>{history.summary.requests} คำขอ</small>}</>}</p>
         <label className="whc-search"><Icon name="search" size={19}/><input aria-label="ค้นหาคำขอ" placeholder="ค้นหาเลขที่คำขอ / ชื่อร้าน" value={search} onChange={event => setSearch(event.target.value)}/></label>
-        <WorkshopYearFilter years={availableYears} value={yearFilter} onChange={setYearFilter}/>
+        <WorkshopYearFilter years={availableYears} value={yearFilter} onChange={year => { setYearFilter(year); setMonthFilter('') }}/>
+        <label className="whc-period-filter"><span>เดือนจัดงาน</span><select aria-label="กรองเดือนจัดงาน" value={monthFilter} onChange={event => setMonthFilter(event.target.value)}><option value="">ทุกเดือน</option>{THAI_MONTHS.map((month, index) => <option key={month} value={String(index + 1).padStart(2, '0')}>{month}</option>)}</select></label>
         <select aria-label="กรองประเภทงาน" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}><option value="">ทุกประเภทงาน</option>{WORKSHOP_TYPES.map(type => <option key={type}>{type}</option>)}</select>
         <button className="icon-button" aria-label="รีเฟรชประวัติ Workshop" disabled={loading} onClick={load}><Icon name="refresh" size={19}/></button>
-        {(search || typeFilter || yearFilter) && <button className="whc-clear" onClick={() => { setSearch(''); setTypeFilter(''); setYearFilter('') }}>ล้างตัวกรอง</button>}
+        {(search || typeFilter || yearFilter || monthFilter) && <button className="whc-clear" onClick={() => { setSearch(''); setTypeFilter(''); setYearFilter(''); setMonthFilter('') }}>ล้างตัวกรอง</button>}
       </div>
       <section aria-label="ประวัติ Workshop แยกปีและเดือน" aria-busy={loading}>
         {loading && <p className="document-empty" role="status">กำลังโหลดคำขอ...</p>}
-        {!loading && !history.years.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดประวัติได้ กรุณาลองใหม่' : search || typeFilter || yearFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
-        {!loading && !!history.years.length && <WorkshopHistoryTree key={JSON.stringify([search, typeFilter, yearFilter])} years={history.years} onSelect={plan => setInsight(planDocument(plan))} hasActions={hasActions} renderActions={renderActions} confirmingDeleteId={confirmingDeleteId} renderConfirmation={renderConfirmation}/>}
+        {!loading && !history.years.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดประวัติได้ กรุณาลองใหม่' : search || typeFilter || yearFilter || monthFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
+        {!loading && !!history.years.length && <WorkshopHistoryTree key={JSON.stringify([search, typeFilter, yearFilter, monthFilter])} years={history.years} onSelect={plan => setInsight(planDocument(plan))} hasActions={hasActions} renderActions={renderActions} confirmingDeleteId={confirmingDeleteId} renderConfirmation={renderConfirmation}/>}
       </section>
       {!loading && !error && !!history.years.length && <p className="whc-count-note">จำนวนร้านนับไม่ซ้ำในแต่ละกลุ่ม · ร้านที่มีรหัสใช้รหัสร้าน ร้านที่กรอกเองใช้ชื่อร้าน{history.summary.overlapping && ' · ร้านเดียวกันอาจมีคำขออยู่ในหลายสถานะ'}{history.summary.unknownStores > 0 && ` · อีก ${history.summary.unknownStores} คำขอไม่ระบุร้าน`}</p>}
       <details className="document-section whc-calendar"><summary>ตารางนัดหมาย Workshop · เปิดปฏิทิน</summary>

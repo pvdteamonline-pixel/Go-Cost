@@ -59,7 +59,7 @@ export const NAV_GROUPS = [
   {
     label: 'ค่าใช้จ่าย',
     items: [
-      { key: 'expense-report', label: 'รายงานค่าใช้จ่าย / ปฏิทิน', icon: 'calendar' },
+      { key: 'expense-report', label: 'เอกสารและรายงาน', icon: 'file' },
       { key: 'expense-entry', label: 'บันทึกค่าใช้จ่าย', icon: 'plus' },
       { key: 'expense-history', label: 'ประวัติรายการ', icon: 'history' },
     ],
