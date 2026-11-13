@@ -60,7 +60,7 @@ function GroupSection({ group, revenueMonthly, revenueTotal }) {
   return (
     <>
       {/* กลุ่ม: % row */}
-      <tr className="bg-[#f5f5f5] border-t-2 border-black/10">
+      <tr className="w1-report-group bg-[#f5f5f5] border-t-2 border-black/10">
         <td
           colSpan={2}
           className="px-2 py-1 text-[11px] font-bold text-ink-800 italic"
@@ -222,7 +222,7 @@ export default function PLReportPage() {
   }
 
   return (
-    <div className="max-w-full mx-auto space-y-4">
+    <div className="pl-report max-w-full mx-auto space-y-4">
       {/* ─ Header ─ */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>

@@ -361,7 +361,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
                 {pivotData.rows.map((r, idx) => {
                   if (r.type === 'section') {
                     return (
-                      <tr key={idx} className="bg-ocean/10 border-y border-ocean/30">
+                      <tr key={idx} className="w1-report-section bg-ocean/10 border-y border-ocean/30">
                         <td colSpan={17} className="py-2 px-3 font-bold text-ocean text-sm">
                           {r.title}
                         </td>
@@ -371,7 +371,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
                   if (r.type === 'section-header') {
                     return (
-                      <tr key={idx} className="bg-rose-50/90 border-y border-rose-200">
+                      <tr key={idx} className="w1-report-subsection bg-rose-50/90 border-y border-rose-200">
                         <td colSpan={17} className="py-2 px-3 font-bold text-rose-900 text-xs">
                           {r.title}
                         </td>
@@ -381,7 +381,7 @@ export default function ExecutiveReportPage({ onNavigate }) {
 
                   if (r.type === 'category-header') {
                     return (
-                      <tr key={idx} className="bg-ink-100/70 border-t border-black/10">
+                      <tr key={idx} className="w1-report-category bg-ink-100/70 border-t border-black/10">
                         <td colSpan={2} className="py-1.5 px-2 font-bold text-ink-900">
                           {r.title}
                         </td>

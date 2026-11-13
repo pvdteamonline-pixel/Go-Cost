@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.jsx'
 import './styles/navyTheme.css'
 import './styles/groupedDocuments.css'
+import './styles/compactTheme.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
