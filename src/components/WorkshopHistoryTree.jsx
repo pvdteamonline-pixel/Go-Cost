@@ -10,14 +10,17 @@ function StatusMark({ kind }) {
   return <span className={`whc-mark ${kind}`} aria-hidden="true">{kind === 'approved' ? <Icon name="check" size={13} /> : kind === 'pending' ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg> : <Icon name="info" size={17} />}</span>
 }
 
-function Period({ label, summary, level, open, onToggle, children }) {
+function Period({ label, summary, level, open, onToggle, children, countMode }) {
   const id = useId()
+  const unit = countMode === 'requests' ? 'รายการ' : 'ร้าน'
+  const counts = countMode === 'requests' ? summary.requestCounts : summary
+  const total = countMode === 'requests' ? summary.requests : summary.stores
   const countsId = `${id}-counts`
   const Heading = level === 'year' ? 'h2' : 'h3'
   return <section className={`whc-period whc-${level}`} aria-label={label}>
     <Heading className="whc-period-title"><button className="whc-period-toggle" aria-label={`${open ? 'พับ' : 'ขยาย'}${level === 'year' ? 'ปี' : 'เดือน'} ${label}`} aria-expanded={open} aria-controls={id} aria-describedby={countsId} onClick={onToggle}>
       <Icon name={open ? 'chevronDown' : 'chevronRight'} size={20} /><span className="whc-period-label">{label}</span>
-      <span id={countsId} className="whc-period-counts"><strong title="จำนวนร้านไม่ซ้ำในกลุ่มนี้">{summary.stores} ร้าน</strong><span className="approved"><StatusMark kind="approved"/>อนุมัติแล้ว {summary.approved} ร้าน</span><span className="pending"><StatusMark kind="pending"/>รออนุมัติ {summary.pending} ร้าน</span>{summary.otherRequests > 0 && <span className="other"><StatusMark kind="other"/>สถานะอื่น {summary.other} ร้าน</span>}</span>
+      <span id={countsId} className="whc-period-counts"><strong title={countMode === 'requests' ? 'จำนวนคำขอในกลุ่มนี้' : 'จำนวนร้านไม่ซ้ำในกลุ่มนี้'}>{total} {unit}</strong><span className="approved"><StatusMark kind="approved"/>อนุมัติแล้ว {counts.approved} {unit}</span><span className="pending"><StatusMark kind="pending"/>รออนุมัติ {counts.pending} {unit}</span>{summary.otherRequests > 0 && <span className="other"><StatusMark kind="other"/>สถานะอื่น {counts.other} {unit}</span>}</span>
     </button></Heading>
     <div id={id} hidden={!open} className={level === 'year' ? 'whc-months' : 'whc-month-body'}>{open && children}</div>
   </section>
@@ -39,25 +42,26 @@ function PlanRow({ plan, onSelect, hasActions, renderActions, confirmingDeleteId
   </>
 }
 
-function MonthTable({ month, ...rowProps }) {
+function MonthTable({ month, countMode, ...rowProps }) {
+  const groups = countMode === 'requests' ? [GROUPS[1], GROUPS[0], GROUPS[2]] : GROUPS
   return <div className="whc-table-scroll" role="region" aria-label={`รายการเดือน${month.label}`} tabIndex={0}><table className="whc-table workshop-history-table">
     <colgroup><col style={{width:'41%'}}/><col style={{width:'20%'}}/><col style={{width:'24%'}}/><col style={{width:'15%'}}/></colgroup>
     <thead><tr><th scope="col">เลขที่คำขอ / ร้านค้า</th><th scope="col">วันจัดงาน</th><th scope="col">สถานะ</th><th scope="col"><span className="expense-sr-only">การดำเนินการ</span></th></tr></thead>
-    {GROUPS.filter(group => month[group.key].length).map(group => {
+    {groups.filter(group => month[group.key].length).map(group => {
       const rows = month[group.key], summary = workshopStoreSummary(rows)
       return <tbody key={group.key}>
-        <tr className={`whc-status-band ${group.key}`}><th scope="rowgroup" colSpan={4}><span><StatusMark kind={group.key}/>{group.label} · {summary.stores} ร้าน{summary.requests !== summary.stores && <small>· {summary.requests} คำขอ</small>}</span></th></tr>
+        <tr className={`whc-status-band ${group.key}`}><th scope="rowgroup" colSpan={4}><span><StatusMark kind={group.key}/>{group.label} · {countMode === 'requests' ? `${summary.requests} รายการ` : <>{summary.stores} ร้าน{summary.requests !== summary.stores && <small>· {summary.requests} คำขอ</small>}</>}</span></th></tr>
         {rows.map(plan => <PlanRow key={plan.id} plan={plan} {...rowProps}/>) }
       </tbody>
     })}
   </table></div>
 }
 
-export default function WorkshopHistoryTree({ years, ...rowProps }) {
+export default function WorkshopHistoryTree({ years, countMode = 'stores', ...rowProps }) {
   const [expandedYears, setExpandedYears] = useState({}), [collapsedMonths, setCollapsedMonths] = useState({})
-  return <div className="whc-years">{years.map((year, index) => <Period key={year.key} level="year" label={year.label} summary={year.summary} open={expandedYears[year.key] ?? index === 0} onToggle={() => setExpandedYears(previous => ({ ...previous, [year.key]: !(previous[year.key] ?? index === 0) }))}>
-    {year.months.map(month => <Period key={month.key} level="month" label={month.label} summary={month.summary} open={!collapsedMonths[month.key]} onToggle={() => setCollapsedMonths(previous => ({ ...previous, [month.key]: !previous[month.key] }))}>
-      <MonthTable month={month} {...rowProps}/>
+  return <div className="whc-years">{years.map((year, index) => <Period key={year.key} countMode={countMode} level="year" label={year.label} summary={year.summary} open={expandedYears[year.key] ?? index === 0} onToggle={() => setExpandedYears(previous => ({ ...previous, [year.key]: !(previous[year.key] ?? index === 0) }))}>
+    {year.months.map(month => <Period key={month.key} countMode={countMode} level="month" label={month.label} summary={month.summary} open={!collapsedMonths[month.key]} onToggle={() => setCollapsedMonths(previous => ({ ...previous, [month.key]: !previous[month.key] }))}>
+      <MonthTable month={month} countMode={countMode} {...rowProps}/>
     </Period>)}
   </Period>)}</div>
 }

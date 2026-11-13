@@ -12,14 +12,16 @@ export function workshopStoreKey(plan) {
 
 export function workshopStoreSummary(plans) {
   const stores = new Set(), groups = { approved: new Set(), pending: new Set(), other: new Set() }
+  const requestCounts = { approved: 0, pending: 0, other: 0 }
   let unknownStores = 0, otherRequests = 0
   for (const plan of plans) {
     const key = workshopStoreKey(plan), group = approvalGroup(plan.status)
+    requestCounts[group]++
     if (group === 'other') otherRequests++
     if (key) { stores.add(key); groups[group].add(key) } else unknownStores++
   }
   const counts = Object.fromEntries(Object.entries(groups).map(([key, values]) => [key, values.size]))
-  return { stores: stores.size, ...counts, requests: plans.length, unknownStores, otherRequests, overlapping: counts.approved + counts.pending + counts.other > stores.size }
+  return { stores: stores.size, ...counts, requests: plans.length, requestCounts, unknownStores, otherRequests, overlapping: counts.approved + counts.pending + counts.other > stores.size }
 }
 
 export function groupWorkshopHistory(plans, filters = {}) {

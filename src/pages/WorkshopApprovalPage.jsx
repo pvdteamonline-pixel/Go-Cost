@@ -1,109 +1,76 @@
-import WorkshopRequestDetails from '../components/WorkshopRequestDetails'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
 import { hasPagePermission } from '../lib/permissions'
+import { groupWorkshopHistory } from '../lib/workshopHistory'
+import { WORKSHOP_TYPES } from '../lib/workshopRequest'
+import WorkshopHistoryTree from '../components/WorkshopHistoryTree'
+import WorkshopApprovalDialog from '../components/WorkshopApprovalDialog'
+import Icon from '../components/Icon'
+import './WorkshopHistoryPage.css'
 
 export default function WorkshopApprovalPage() {
   const { currentUser } = useAuth()
-  const [plans, setPlans] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [busyId, setBusyId] = useState(null)
-  const [rejectingId, setRejectingId] = useState(null)
-  const [rejectNote, setRejectNote] = useState('')
-
+  const [plans, setPlans] = useState([]), [loading, setLoading] = useState(true)
+  const [error, setError] = useState(''), [notice, setNotice] = useState('')
+  const [selected, setSelected] = useState(null), [decisionError, setDecisionError] = useState(''), [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState(''), [typeFilter, setTypeFilter] = useState('')
+  const decisionLock = useRef(false), loadSequence = useRef(0)
+  const invalidateLoad = useCallback(() => { loadSequence.current++ }, [])
   const canApprove = hasPagePermission(currentUser, 'workshop-approve')
-
   const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    const { data, error: err } = await supabase.rpc('get_workshop_plans_v2', { p_actor_id: currentUser?.id ?? null })
-    setLoading(false)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    setPlans((data ?? []).filter((p) => p.status === 'pending_approval'))
-  }, [currentUser])
+    const sequence = ++loadSequence.current
+    setLoading(true); setError('')
+    try {
+      const { data, error: err } = await supabase.rpc('get_workshop_plans_v2', { p_actor_id: currentUser?.id ?? null })
+      if (err) throw new Error(err.message)
+      if (data != null && !Array.isArray(data)) throw new Error('รูปแบบข้อมูลคำขอไม่ถูกต้อง')
+      if (sequence === loadSequence.current) setPlans(data ?? [])
+    } catch (err) {
+      if (sequence === loadSequence.current) { setPlans([]); setError('โหลดรายการไม่สำเร็จ: ' + err.message) }
+    } finally { if (sequence === loadSequence.current) setLoading(false) }
+  }, [currentUser?.id])
+  useEffect(() => {
+    setSelected(null)
+    if (canApprove) load()
+    else { setPlans([]); setLoading(false) }
+    return invalidateLoad
+  }, [canApprove, load, invalidateLoad])
+  const history = useMemo(() => groupWorkshopHistory(plans, { search, type: typeFilter }), [plans, search, typeFilter])
 
-  useEffect(() => { if (canApprove) load() }, [canApprove, load])
-
-  async function handleApprove(id) {
-    setBusyId(id)
-    setError('')
-    const { data, error: err } = await supabase.rpc('approve_workshop_plan', { p_plan_id: id, p_actor_id: currentUser?.id ?? null })
-    setBusyId(null)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setNotice(data.message)
-    load()
+  async function handleDecision(id, action, note = '') {
+    if (decisionLock.current || !canApprove || !plans.some(plan => plan.id === id && plan.status === 'pending_approval')) return
+    decisionLock.current = true; setBusy(true); setDecisionError(''); setNotice('')
+    try {
+      const { data, error: err } = await supabase.rpc(action === 'approve' ? 'approve_workshop_plan' : 'reject_workshop_plan', {
+        p_plan_id: id, p_actor_id: currentUser?.id ?? null, ...(action === 'reject' ? { p_admin_note: note } : {}),
+      })
+      if (err) throw new Error(err.message)
+      if (!data?.success) throw new Error(data?.message || 'ดำเนินการไม่สำเร็จ กรุณาลองใหม่')
+      setNotice(data.message || (action === 'approve' ? 'อนุมัติคำขอแล้ว' : 'ปฏิเสธคำขอแล้ว'))
+      setSelected(null)
+      await load()
+    } catch (err) { setDecisionError('เกิดข้อผิดพลาด: ' + err.message) }
+    finally { decisionLock.current = false; setBusy(false) }
   }
+  if (!canApprove) return <div className="max-w-2xl mx-auto glass p-10 text-center"><p className="doc-badge mb-4">ไม่มีสิทธิ์เข้าถึง</p><p className="text-ink-600 text-sm">หน้านี้ต้องได้รับสิทธิ์เข้าถึงจาก Admin ก่อน</p></div>
 
-  async function handleReject(id) {
-    setBusyId(id)
-    setError('')
-    const { data, error: err } = await supabase.rpc('reject_workshop_plan', {
-      p_plan_id: id, p_admin_note: rejectNote, p_actor_id: currentUser?.id ?? null,
-    })
-    setBusyId(null)
-    if (err) return setError('เกิดข้อผิดพลาด: ' + err.message)
-    if (!data.success) return setError(data.message)
-    setNotice(data.message)
-    setRejectingId(null)
-    setRejectNote('')
-    load()
-  }
-
-  if (!canApprove) {
-    return (
-      <div className="max-w-2xl mx-auto glass p-10 text-center">
-        <p className="doc-badge mb-4">ไม่มีสิทธิ์เข้าถึง</p>
-        <p className="text-ink-600 text-sm">หน้านี้ต้องได้รับสิทธิ์เข้าถึงจาก Admin ก่อน</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="font-display italic text-3xl text-ink-900">อนุมัติ Workshop</h1>
-        <p className="text-ink-600 text-sm mt-1">คำขอ Workshop ที่รอการอนุมัติ</p>
-      </div>
-
-      {notice && <p className="text-sage text-sm bg-sage-pale border border-sage/30 rounded-lg px-3 py-2">{notice}</p>}
-      {error && <p className="text-rose text-sm bg-rose-pale border border-rose/30 rounded-lg px-3 py-2">{error}</p>}
-      {loading && <p className="text-ink-500 text-sm">กำลังโหลด...</p>}
-
-      <div className="space-y-3">
-        {!loading && plans.length === 0 && (
-          <div className="glass p-8 text-center text-ink-400 text-sm">ไม่มีคำขอที่รออนุมัติ</div>
-        )}
-        {plans.map((p) => (
-          <div key={p.id} className="glass p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <span className="doc-badge">{p.id}</span>
-                <p className="text-ink-900 text-sm mt-1">{p.store_name} — {p.province} ({p.region})</p>
-                <p className="text-ink-500 text-xs">วันที่วางแผน: {p.planned_date} · เซลล์ที่สังกัด: {p.assigned_sales_name || 'ยังไม่ได้กำหนด'}</p>
-              </div>
-              <p className="text-ink-400 text-xs">ขอโดย {p.created_by} · {new Date(p.created_at).toLocaleString('th-TH')}</p>
-            </div>
-            <WorkshopRequestDetails plan={p} />
-            <div className="flex items-center gap-2">
-              <button onClick={() => handleApprove(p.id)} disabled={busyId === p.id} className="btn-primary text-xs px-4 py-1.5 disabled:opacity-60">
-                {busyId === p.id ? 'กำลังดำเนินการ...' : 'อนุมัติ'}
-              </button>
-              <button onClick={() => setRejectingId(rejectingId === p.id ? null : p.id)} className="btn-ghost text-xs px-4 py-1.5">ปฏิเสธ</button>
-            </div>
-            {rejectingId === p.id && (
-              <div className="flex items-center gap-2 pt-2 border-t border-black/10">
-                <input className="glass-input text-sm flex-1" placeholder="เหตุผลการปฏิเสธ (ไม่บังคับ)"
-                       value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
-                <button onClick={() => handleReject(p.id)} disabled={busyId === p.id} className="text-rose text-xs hover:underline whitespace-nowrap">ยืนยันปฏิเสธ</button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+  return <div className="workshop-history-c1 workshop-approval-c1">
+    <div className="whc-heading"><div><h1>อนุมัติ Workshop</h1><p>แยกตามปีและเดือน · เปิด Insight เพื่อตรวจสอบและพิจารณาคำขอ</p></div></div>
+    {notice && <p role="status" className="wac-notice">{notice}</p>}
+    {error && <p role="alert" className="expense-alert">{error}</p>}
+    <div className="whc-toolbar"><p className="whc-overview" aria-live="polite">{loading || error ? '—' : <strong>{history.summary.requests} รายการ · {history.years.filter(year => year.key !== 'unknown').length} ปี</strong>}</p>
+      <label className="whc-search"><Icon name="search" size={19}/><input aria-label="ค้นหาคำขอ" placeholder="ค้นหาเลขที่คำขอ / ชื่อร้าน" value={search} onChange={event => setSearch(event.target.value)}/></label>
+      <select aria-label="กรองประเภทงาน" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}><option value="">ทุกประเภทงาน</option>{WORKSHOP_TYPES.map(type => <option key={type}>{type}</option>)}</select>
+      <button className="icon-button" aria-label="รีเฟรชรายการอนุมัติ Workshop" disabled={loading || busy} onClick={load}><Icon name="refresh" size={19}/></button>
+      {(search || typeFilter) && <button className="whc-clear" onClick={() => { setSearch(''); setTypeFilter('') }}>ล้างตัวกรอง</button>}
     </div>
-  )
+    <section aria-label="รายการอนุมัติ Workshop แยกปีและเดือน" aria-busy={loading}>
+      {loading && <p className="document-empty" role="status">กำลังโหลดคำขอ...</p>}
+      {!loading && !history.years.length && <p className="document-empty">{error ? 'ไม่สามารถโหลดรายการได้ กรุณาลองใหม่' : search || typeFilter ? 'ไม่พบคำขอตามตัวกรองที่เลือก' : 'ยังไม่มีคำขอ Workshop'}</p>}
+      {!loading && !!history.years.length && <WorkshopHistoryTree key={JSON.stringify([search, typeFilter])} years={history.years} countMode="requests" onSelect={plan => { setDecisionError(''); setSelected(plan) }} hasActions={() => false}/>}
+    </section>
+    {!loading && !error && !!history.years.length && <p className="whc-count-note">นับจำนวนคำขอในแต่ละปีและเดือน · ร้านเดียวกันอาจมีหลายรายการ</p>}
+    {selected && <WorkshopApprovalDialog key={selected.id} plan={selected} busy={busy} error={decisionError} onClose={() => { if (!decisionLock.current) setSelected(null) }} onDecision={handleDecision}/>}
+  </div>
 }

@@ -36,3 +36,13 @@ test('search and type filters update year and month totals together; empty filte
   assert.equal(result.summary.stores,1);assert.equal(result.years.length,1);assert.equal(result.years[0].months[0].summary.approved,1)
   assert.deepEqual(groupWorkshopHistory(data,{search:'ไม่มี'}).years,[])
 })
+
+test('approval counts every request, including repeated stores and unnamed requests, once in its status', () => {
+  const data=[plan('a',1,'2026-11-01','pending_approval'),plan('b',1,'2026-11-02','pending_approval'),plan('c',1,'2026-11-03','awaiting_sales_data'),plan('d',1,'2026-10-01','completed'),{id:'e',status:'rejected'}]
+  const result=groupWorkshopHistory(data)
+  assert.deepEqual(result.summary.requestCounts,{pending:2,approved:2,other:1})
+  assert.deepEqual(result.years[0].summary.requestCounts,{pending:2,approved:2,other:0})
+  assert.deepEqual(result.years[0].months[0].summary.requestCounts,{pending:2,approved:1,other:0})
+  assert.equal(result.summary.stores,1)
+  assert.equal(Object.values(result.summary.requestCounts).reduce((sum,value)=>sum+value,0),result.summary.requests)
+})

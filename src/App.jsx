@@ -95,7 +95,7 @@ function Shell() {
   const roleLabel = currentUser.role === 'ADMIN' ? 'ผู้ดูแลระบบ' : currentUser.role
 
   return (
-    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${active === 'workshop-plan-view' ? 'is-workshop-history' : ''}`}>
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${['workshop-plan-view', 'workshop-approve'].includes(active) ? 'is-workshop-history' : ''}`}>
       {mobile && mobileOpen && <button className="sidebar-scrim" aria-label="ปิดเมนูพื้นหลัง" tabIndex={-1} onClick={() => setMobileOpen(false)} />}
       <Sidebar active={active} onNavigate={navigate} collapsed={collapsed} onToggle={toggleSidebar} mobile={mobile} onClose={() => setMobileOpen(false)} onCollapsedChange={setSidebarCollapsed} />
       <div className="app-content" inert={mobile && mobileOpen}>
