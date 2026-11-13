@@ -67,12 +67,13 @@ export default function ExpenseHistoryPage({ onNavigate }) {
   }
   if (editingDoc) return <ExpenseEditPage key={editingDoc.docNo} doc={editingDoc} onClose={() => setEditingDoc(null)} onSubmitted={message => { setNotice(message); setEditingDoc(null); load() }} />
   return <div className="expense-history">
-    <div className="expense-page-heading"><div><p className="expense-breadcrumb">ค่าใช้จ่าย / ประวัติรายการ</p><h1>ประวัติรายการ</h1></div><button className="expense-button expense-button-primary" onClick={() => onNavigate('expense-entry')}><Icon name="plus" size={17} />สร้างเอกสาร</button></div>
+    <div className="expense-page-heading"><div><p className="expense-breadcrumb">ค่าใช้จ่าย / ประวัติรายการ</p><h1>ประวัติรายการ</h1></div></div>
     <div className="expense-toolbar">
       <label className="expense-search"><Icon name="search" size={18} /><input aria-label="ค้นหาเลขที่เอกสาร / ชื่อร้าน" placeholder="ค้นหาเลขที่เอกสาร / ชื่อร้าน" value={search} onChange={event => setSearch(event.target.value)} /></label>
       <input className="expense-month" type="month" aria-label="เดือนประวัติรายการ" value={month} onChange={event => setMonth(event.target.value)} />
       <button className="expense-button" onClick={() => setMonth('')} aria-pressed={!month}>ทุกเดือน</button>
       <button className="expense-button expense-refresh" aria-label="รีเฟรชประวัติรายการ" title="รีเฟรช" disabled={loading} onClick={load}><Icon name="refresh" size={18} /></button>
+      <button className="expense-button expense-button-primary expense-create" onClick={() => onNavigate('expense-entry')}><Icon name="plus" size={17} />สร้างเอกสาร</button>
       <button className="expense-button expense-report-link" onClick={() => onNavigate('expense-report')}><Icon name="calendar" size={17} />รายงาน / ปฏิทิน</button>
     </div>
     {notice && <p role="status" className="expense-notice">{notice}</p>}
@@ -82,7 +83,7 @@ export default function ExpenseHistoryPage({ onNavigate }) {
       {!loading && !!documents.length && <div className="expense-table-scroll"><table className="expense-history-table">
         <thead><tr><th scope="col">เลขที่เอกสาร / ร้านค้า</th><th scope="col">วันที่</th><th scope="col">สถานะ</th><th scope="col" className="expense-number">ค่าใช้จ่าย</th><th scope="col" className="expense-number">รายได้บริษัท</th><th scope="col"><span className="expense-sr-only">การดำเนินการ</span></th></tr></thead>
         <tbody>{documents.map(doc => <tr key={doc.docNo} className={expandedDoc === doc.docNo ? 'is-selected' : ''}>
-          <td><button className="expense-document-link" onClick={() => setExpandedDoc(doc.docNo)}>{doc.docNo}</button><small>{doc.storeName || '—'}</small></td><td>{doc.dateLabel}</td><td><DocumentStatus doc={doc} /></td>
+          <td><div className="expense-document-cell"><button className="expense-text-button expense-row-open" aria-label={`เปิดเอกสาร ${doc.docNo}`} onClick={() => setExpandedDoc(doc.docNo)}><Icon name="chevronRight" size={18} /></button><div><button className="expense-document-link" onClick={() => setExpandedDoc(doc.docNo)}>{doc.docNo}</button><small>{doc.storeName || '—'}</small></div></div></td><td>{doc.dateLabel}</td><td><DocumentStatus doc={doc} /></td>
           <td className="expense-number">{documentMoney(doc.expense)}</td><td className="expense-number">{documentMoney(doc.income)}</td>
           <td><div className="expense-row-actions"><button className="expense-text-button" aria-label={`Insight ${doc.docNo}`} onClick={() => setExpandedDoc(doc.docNo)}><Icon name="eye" size={17} />Insight</button><ExpensePdfButton doc={doc} compact onError={setError} />
             <div className="expense-row-menu"><button className="expense-text-button" aria-label={`ตัวเลือก ${doc.docNo}`} aria-expanded={openMenu === doc.docNo} onClick={() => setOpenMenu(openMenu === doc.docNo ? null : doc.docNo)}><Icon name="more" size={18} /></button>{openMenu === doc.docNo && <div className="expense-menu-options"><button onClick={() => edit(doc)}>ขอแก้ไข</button><button className="expense-negative" onClick={() => requestDelete(doc.docNo)}>ขอลบ</button></div>}</div>

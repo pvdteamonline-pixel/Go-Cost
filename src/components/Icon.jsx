@@ -1,4 +1,5 @@
 const paths = {
+  chevronRight: 'M9 5l7 7-7 7',
   download: 'M12 3v12M7 10l5 5 5-5M4 16v5h16v-5',
   close: 'M5 5l14 14M19 5L5 19',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
