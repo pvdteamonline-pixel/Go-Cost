@@ -1,4 +1,5 @@
 import { THAI_MONTHS } from './constants.js'
+import { dateNumber } from './workshopCalendar.js'
 
 export const WORKSHOP_TYPES = ['Workshop', 'ตั้งกอง', 'Training Partner', 'Training ศูนย์ฝึกอาชีพ']
 export const PRODUCT_ESTIMATES = [
@@ -36,6 +37,7 @@ export function requestDefaults(plan, initialDate = '') {
   return {
     event_type: d.event_type || 'Workshop', party_name: d.party_name || plan?.store_name || '',
     planned_date: plan?.planned_date || initialDate, start_time: d.start_time || '', end_time: d.end_time || '',
+    end_date: d.end_date || plan?.planned_date || initialDate,
     venue: d.venue || '', topic: d.topic || '', expected_attendees: d.expected_attendees ?? '',
     estimated_cost: d.estimated_cost ?? '', expense_items: d.expense_items?.map(item => ({ ...item })) || [],
     equipment: d.equipment || '',
@@ -47,6 +49,7 @@ export function validateRequest(d) {
   if (!WORKSHOP_TYPES.includes(d.event_type)) return 'กรุณาเลือกประเภทงาน'
   if (!d.party_name.trim() || d.party_name.length > 300) return 'กรุณาระบุชื่อร้าน / ลูกค้า / สถาบัน ไม่เกิน 300 ตัวอักษร'
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.planned_date) || Number.isNaN(Date.parse(d.planned_date)) || new Date(d.planned_date).toISOString().slice(0, 10) !== d.planned_date) return 'กรุณาระบุวันที่จัดงานให้ถูกต้อง'
+  if (dateNumber(d.end_date || d.planned_date) == null || (d.end_date || d.planned_date) < d.planned_date) return 'กรุณาระบุวันสิ้นสุดให้ถูกต้อง และต้องไม่ก่อนวันเริ่มต้น'
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(d.start_time) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(d.end_time) || d.end_time <= d.start_time) return 'กรุณาระบุเวลาเริ่มและเวลาสิ้นสุด โดยเวลาสิ้นสุดต้องหลังเวลาเริ่มในวันเดียวกัน'
   if (!d.venue.trim() || d.venue.length > 1000) return 'กรุณาระบุสถานที่จัด ไม่เกิน 1,000 ตัวอักษร'
   if (!d.topic.trim() || d.topic.length > 1000) return 'กรุณาระบุหัวข้ออบรม ไม่เกิน 1,000 ตัวอักษร'
@@ -66,6 +69,7 @@ export function validateRequest(d) {
 export function requestPayload(d) {
   return {
     event_type: d.event_type, party_name: d.party_name.trim(), start_time: d.start_time, end_time: d.end_time,
+    end_date: d.end_date || d.planned_date,
     venue: d.venue.trim(), topic: d.topic.trim(), expected_attendees: Number(d.expected_attendees),
     estimated_cost: Number(d.estimated_cost),
     expense_items: d.expense_items.map(item => ({ description: item.description.trim(), amount: Number(item.amount) })),

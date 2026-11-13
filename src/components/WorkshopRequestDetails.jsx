@@ -10,7 +10,7 @@ export default function WorkshopRequestDetails({ plan }) {
     <dl className="wr-detail-grid">
       <div><dt>ประเภทงาน</dt><dd>{d?.event_type || 'Workshop'}</dd></div>
       <div><dt>ชื่อร้าน / ลูกค้า / สถาบัน</dt><dd>{d?.party_name || plan.store_name || plan.storeName || '—'}</dd></div>
-      <div><dt>วันที่–เวลาจัด</dt><dd>{thaiDate(plan.planned_date || plan.eventDate)}{d?.start_time ? ' · ' + d.start_time + '–' + d.end_time : ''}</dd></div>
+      <div><dt>วันที่–เวลาจัด</dt><dd>{thaiDate(plan.planned_date || plan.eventDate)}{d?.end_date && d.end_date !== (plan.planned_date || plan.eventDate) ? ' ถึง ' + thaiDate(d.end_date) : ''}{d?.start_time ? ' · ' + d.start_time + '–' + d.end_time + (d.end_date && d.end_date !== (plan.planned_date || plan.eventDate) ? ' ทุกวัน' : '') : ''}</dd></div>
       <div><dt>สถานที่จัด</dt><dd>{d?.venue || '—'}</dd></div>
       <div><dt>หัวข้ออบรม</dt><dd>{d?.topic || '—'}</dd></div>
       <div><dt>จำนวนคนที่คาดหวัง</dt><dd>{d?.expected_attendees == null ? '—' : d.expected_attendees.toLocaleString('th-TH') + ' คน'}</dd></div>

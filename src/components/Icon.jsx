@@ -1,4 +1,5 @@
 const paths = {
+  chevronLeft: 'M15 5l-7 7 7 7',
   chevronDown: 'M5 9l7 7 7-7',
   home: 'M3 10l9-7 9 7M5 9v12h14V9M9 21v-7h6v7',
   bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4',

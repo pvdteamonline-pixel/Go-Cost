@@ -8,9 +8,10 @@ import WorkshopProductEstimates from './WorkshopProductEstimates'
 import { WORKSHOP_TYPES, expenseTotal, formatMoney, requestDefaults, requestPayload, validateRequest } from '../lib/workshopRequest'
 import './WorkshopRequest.css'
 
-export default function WorkshopRequestForm({ initialDate = '', plan = null, onCreated, onCancel, embedded = false }) {
+export default function WorkshopRequestForm({ initialDate = '', plan = null, onCreated, onCancel, onDirtyChange, onBusyChange, embedded = false }) {
   const { currentUser } = useAuth()
   const [values, setValues] = useState(() => requestDefaults(plan, initialDate))
+  const initialValues = useRef(JSON.stringify(requestDefaults(plan, initialDate)))
   const [selectedStore, setSelectedStore] = useState(() => plan?.store_id ? { id: plan.store_id, name: plan.store_name, province: plan.province, region: plan.region, assigned_sales_name: plan.assigned_sales_name } : null)
   const [manualName, setManualName] = useState(() => !!plan && !plan.store_id)
   const [submitting, setSubmitting] = useState(false)
@@ -23,6 +24,8 @@ export default function WorkshopRequestForm({ initialDate = '', plan = null, onC
     && (!plan || currentUser?.role === 'ADMIN' || plan.created_by === currentUser?.id)
   const update = (key, value) => setValues(previous => ({ ...previous, [key]: value }))
   useEffect(() => { if (embedded) formRef.current?.scrollIntoView({ block: 'nearest' }) }, [embedded])
+  useEffect(() => { onDirtyChange?.(JSON.stringify(values) !== initialValues.current) }, [values, onDirtyChange])
+  useEffect(() => { onBusyChange?.(submitting) }, [submitting, onBusyChange])
   function reset() {
     setValues(requestDefaults(plan, initialDate)); setSelectedStore(null); setManualName(false)
     setError(''); setFormKey(key => key + 1); requestId.current = crypto.randomUUID()
@@ -32,6 +35,7 @@ export default function WorkshopRequestForm({ initialDate = '', plan = null, onC
     if (busy.current || !canUse) return
     setError('')
     if (!manualName && !selectedStore) return setError('กรุณาค้นหาเลือกร้านค้า หรือเลือกกรอกชื่อเอง')
+    if (!values.end_date) return setError('กรุณาระบุวันที่สิ้นสุด')
     const validation = validateRequest(values)
     if (validation) return setError(validation)
     busy.current = true
@@ -62,8 +66,10 @@ export default function WorkshopRequestForm({ initialDate = '', plan = null, onC
           <div className="wr-name-mode"><button type="button" aria-pressed={!manualName} onClick={() => { setManualName(false); update('party_name', selectedStore?.name || '') }}>ค้นหารายชื่อเดิม</button><button type="button" aria-pressed={manualName} onClick={() => { setManualName(true); update('party_name', selectedStore?.name || values.party_name) }}>กรอกชื่อเอง</button></div>
           {manualName ? <input aria-label="ชื่อร้าน / ลูกค้า / สถาบัน" className="glass-input" maxLength={300} value={values.party_name} onChange={e => update('party_name', e.target.value)} placeholder="ระบุชื่อร้าน ลูกค้า หรือสถาบัน" /> : <StoreSearchDropdown selectedStore={selectedStore} onSelect={store => { setSelectedStore(store); update('party_name', store?.name || '') }} />}
         </div>
-        <div><ThaiDateInput label="2. วันที่จัดงาน" value={values.planned_date} required onChange={date => update('planned_date', date)} />
+        <div><ThaiDateInput label="2. วันที่เริ่มจัดงาน" value={values.planned_date} required onChange={date => setValues(previous => ({ ...previous, planned_date: date, end_date: !previous.end_date || previous.end_date === previous.planned_date ? date : previous.end_date }))} />
+          <ThaiDateInput label="วันที่สิ้นสุด" value={values.end_date} required onChange={date => update('end_date', date)} />
           <div className="wr-times"><label>เวลาเริ่ม *<input className="glass-input" type="time" value={values.start_time} onChange={e => update('start_time', e.target.value)} /></label><span>–</span><label>เวลาสิ้นสุด *<input className="glass-input" type="time" value={values.end_time} onChange={e => update('end_time', e.target.value)} /></label></div>
+          <p className="wr-hint">ใช้ช่วงเวลาเดียวกันทุกวัน ตั้งแต่วันเริ่มต้นถึงวันสิ้นสุด</p>
         </div>
         <label>3. สถานที่จัด *<input className="glass-input" maxLength={1000} value={values.venue} onChange={e => update('venue', e.target.value)} placeholder="สถานที่ / ที่อยู่จัดงาน" /></label>
         <label>4. หัวข้ออบรม *<input className="glass-input" maxLength={1000} value={values.topic} onChange={e => update('topic', e.target.value)} placeholder="ระบุหัวข้ออบรม" /></label>
