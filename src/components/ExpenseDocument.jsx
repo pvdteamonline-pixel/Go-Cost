@@ -30,12 +30,13 @@ export function DocumentSummary({ doc }) {
 export function DocumentItems({ doc }) {
   return <div className="expense-table-scroll" tabIndex={0} role="region" aria-label="รายละเอียดรายการเอกสาร">
     <table className="expense-detail-table">
-      <colgroup>{[40, 10, 12, 19, 19].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
-      <thead><tr>{['รายการ', 'จำนวน', 'หน่วย', 'ราคา/หน่วย', 'รวม'].map((heading, index) => <th scope="col" className={[1, 3, 4].includes(index) ? 'expense-number' : ''} key={heading}>{heading}</th>)}</tr></thead>
+      <colgroup>{[28, 8, 9, 16, 16, 23].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
+      <thead><tr>{['รายการ', 'จำนวน', 'หน่วย', 'ราคา/หน่วย', 'รวม', 'หมายเหตุ'].map((heading, index) => <th scope="col" className={[1, 3, 4].includes(index) ? 'expense-number' : ''} key={heading}>{heading}</th>)}</tr></thead>
       <tbody>{doc.items.map((item, index) => <tr key={index}>
-        <td><span className="expense-preserve">{documentText(item.detail)}</span><small>{item.mainCategory === 'รายได้' ? item.detail === 'รายได้จาก Workshop' ? 'ยอดขายของร้าน' : 'รายได้บริษัท' : documentText(item.mainCategory)}</small>{item.remark != null && String(item.remark).trim() !== '' && <div className="expense-item-note"><strong>หมายเหตุ:</strong> <span className="expense-preserve">{item.remark}</span></div>}</td>
+        <td><span className="expense-preserve">{documentText(item.detail)}</span><small>{item.mainCategory === 'รายได้' ? item.detail === 'รายได้จาก Workshop' ? 'ยอดขายของร้าน' : 'รายได้บริษัท' : documentText(item.mainCategory)}</small></td>
         <td className="expense-number">{documentText(item.qty)}</td><td>{documentText(item.unit)}</td>
         <td className="expense-number">{documentMoney(item.unitPrice)}</td><td className="expense-number">{documentMoney(item.total)}</td>
+        <td className="expense-item-remark expense-preserve">{item.remark != null && String(item.remark).trim() !== '' ? item.remark : '—'}</td>
       </tr>)}</tbody>
     </table>
     {!doc.items.length && <p className="expense-empty">ไม่มีรายการย่อยในเอกสารนี้</p>}
