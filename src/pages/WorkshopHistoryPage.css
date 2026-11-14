@@ -85,6 +85,19 @@
 .whc-status.approved { background: #dcecdf; color: #27663d; }
 .whc-status.pending { background: #fbe3e7; color: #ad2937; }
 .whc-status.other { background: #e7ebf0; color: #5f6c79; }
+/* Approval page only: white rows, with colors confined to status badges. */
+.workshop-approval-c1 { --whc-pending: #854d0e; }
+.workshop-approval-c1 .whc-status.pending,
+.workshop-approval-c1 .whc-period-counts > .pending,
+.workshop-approval-dialog .whc-status.pending { background: #fff4c6; color: #854d0e; border-color: #e7c65c; }
+.workshop-approval-c1 .whc-status.approved,
+.workshop-approval-c1 .whc-period-counts > .approved,
+.workshop-approval-dialog .whc-status.approved { background: #e5f5e9; color: #27663d; border-color: #8cc5a0; }
+.workshop-approval-c1 .whc-status.rejected,
+.workshop-approval-c1 .whc-period-counts > .rejected,
+.workshop-approval-dialog .whc-status.rejected { background: #fde9e9; color: #a32935; border-color: #e2a0a5; }
+.workshop-approval-c1 .whc-mark.rejected { border: 1px solid currentColor; border-radius: 50%; }
+.workshop-approval-c1 .whc-status-band { display: none; }
 .whc-table td > small { display: block; font-size: 11px; color: #657586; margin-top: 2px; white-space: normal; }
 .whc-row-actions { display: flex; gap: 5px; align-items: center; justify-content: flex-end; }
 .whc-row-actions button, .whc-extra-actions button, .whc-delete-confirm button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid #9eb2c2; background: #fff; color: #294b68; border-radius: 5px; min-height: 28px; padding: 4px 8px; font-size: 12px; white-space: nowrap; }

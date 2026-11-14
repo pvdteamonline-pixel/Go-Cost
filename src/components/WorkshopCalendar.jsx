@@ -2,12 +2,13 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icon'
 import ThaiMonthSelect from './ThaiMonthSelect'
 import ExpenseInsight from './ExpenseInsight'
-import { WORKSHOP_TYPES, WORKSHOP_STATUS, monthLabel } from '../lib/workshopRequest'
+import { WORKSHOP_TYPES, WORKSHOP_STATUS, approvalGroup, monthLabel } from '../lib/workshopRequest'
 import { calendarWeeks, changeMonth, planRange, plansOnDate, todayInBangkok } from '../lib/workshopCalendar'
 import { thaiDate } from '../lib/thaiDates'
 import './WorkshopCalendar.css'
 
 const typeTone = type => ['blue', 'purple', 'green', 'teal'][WORKSHOP_TYPES.indexOf(type)] || 'gray'
+const statusTone = status => status === 'rejected' ? 'rejected' : approvalGroup(status)
 const party = plan => plan.request_details?.party_name || plan.store_name || 'ไม่ระบุร้าน'
 const eventType = plan => plan.request_details?.event_type || 'Workshop'
 const planTitle = plan => `${party(plan)} · ${eventType(plan)}`
@@ -100,14 +101,14 @@ export default function WorkshopCalendar({ plans, people, loading, error, people
           <button className="gc-day-target" aria-label={`เลือกวันที่ ${thaiDate(date)}`} aria-pressed={selectedDate === date} onClick={() => openDate(date)}><span className={date === today ? 'gc-today' : ''}>{Number(date.slice(-2))}</span></button>
           {selectedDate === date && <button className="gc-day-create" aria-label={`สร้างแผนงานวันที่ ${thaiDate(date)}`} onClick={() => onCreate(date)}><Icon name="plus" size={14}/><span>สร้างแผนงาน</span></button>}
         </div>)}</div>
-        <div className="gc-events">{week.segments.filter(segment => segment.lane < maxLanes).map(segment => <button key={segment.plan.id} className={`gc-event ${typeTone(eventType(segment.plan))} ${segment.before ? 'continues-before' : ''} ${segment.after ? 'continues-after' : ''}`} style={{ gridColumn: `${segment.from + 1} / span ${segment.span}`, gridRow: segment.lane + 1 }} title={describe(segment.plan)} aria-label={describe(segment.plan)} data-plan={segment.plan.id} onClick={() => setInsight(document(segment.plan))}><span>{segment.before ? '‹ ' : ''}{planTitle(segment.plan)}{barDates(segment.plan)}{segment.after ? ' ›' : ''}</span><span className="gc-event-time">{planTime(segment.plan)}</span></button>)}</div>
+        <div className="gc-events">{week.segments.filter(segment => segment.lane < maxLanes).map(segment => <button key={segment.plan.id} className={`gc-event status-${statusTone(segment.plan.status)} ${segment.before ? 'continues-before' : ''} ${segment.after ? 'continues-after' : ''}`} style={{ gridColumn: `${segment.from + 1} / span ${segment.span}`, gridRow: segment.lane + 1 }} title={describe(segment.plan)} aria-label={describe(segment.plan)} data-plan={segment.plan.id} onClick={() => setInsight(document(segment.plan))}><span>{segment.before ? '‹ ' : ''}{planTitle(segment.plan)}{barDates(segment.plan)}{segment.after ? ' ›' : ''}</span><span className="gc-event-time">{planTime(segment.plan)}</span></button>)}</div>
         <div className="gc-more-row">{week.days.map((date, index) => {
           const extra = week.segments.filter(segment => segment.lane >= maxLanes && segment.from <= index && segment.from + segment.span > index).length
           return <div key={date}>{extra > 0 && <button aria-label={`ดูอีก ${extra} แผนงาน วันที่ ${thaiDate(date)}`} onClick={() => openDate(date)}>อีก {extra}<span> แผนงาน</span></button>}</div>
         })}</div>
       </div>)}
     </div>
-    <div ref={legendRef} className="gc-legend">{WORKSHOP_TYPES.map(value => <span key={value}><i className={typeTone(value)}/>{value}</span>)}</div>
+    <div ref={legendRef} className="gc-legend">{WORKSHOP_TYPES.map(value => <span key={value}><i className={typeTone(value)}/>{value}</span>)}<span className="gc-status-legend" aria-label="คำอธิบายสีสถานะ"><strong>สถานะ:</strong><span><i className="status-pending"/>รออนุมัติ</span><span><i className="status-approved"/>อนุมัติแล้ว</span><span><i className="status-rejected"/>ปฏิเสธ</span></span></div>
     {!loading && !error && !weeks.some(week => week.segments.length) && <p className="gc-empty">ไม่พบแผนงานในเดือนนี้ตามตัวกรอง</p>}
     {selectedDate && <section className="gc-selected" aria-label="แผนงานวันที่เลือก"><h2>{thaiDate(selectedDate)} <small>{dayPlans.length} แผนงาน</small></h2>
       {dayPlans.map(plan => <button key={plan.id} className="gc-plan-row" onClick={() => setInsight(document(plan))}><strong>{planTitle(plan)}</strong><span>{plan.request_details?.start_time ? `${plan.request_details.start_time}–${plan.request_details.end_time}` : 'ไม่ระบุเวลา'} · {creator(plan)}</span><small>{WORKSHOP_STATUS[plan.status] || plan.status}</small></button>)}
