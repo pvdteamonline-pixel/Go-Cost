@@ -176,3 +176,35 @@
   .workshop-approval-c1 .whc-mobile-insight:focus-visible { outline: 2px solid #147ba8; outline-offset: 2px; }
   .workshop-approval-c1 .whc-mobile-note { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.6; color: #657586; white-space: pre-wrap; overflow-wrap: anywhere; }
 }
+
+/* M1 history list only; desktop table and approval cards remain unchanged. */
+.whc-mobile-history { display: none; }
+@media (max-width: 600px) {
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-table-scroll { display: none; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-history { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; min-width: 0; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-history-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 5px 8px; min-width: 0; padding: 10px; border: 1px solid #c4d3df; border-radius: 7px; background: #fff; color: #203447; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-identity { min-width: 0; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-store { display: block; font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-id { display: block; margin-top: 2px; font-size: 12px; line-height: 1.5; color: #627486; overflow-wrap: anywhere; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-history-card > .whc-status { max-width: 100px; text-align: center; overflow-wrap: anywhere; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-substatus { grid-column: 1 / -1; font-size: 11px; line-height: 1.5; color: #657586; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-bottom { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-date { display: flex; align-items: flex-start; gap: 5px; flex: 1 1 120px; min-width: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-date svg { flex-shrink: 0; margin-top: 1px; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-insight { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; padding: 6px 9px; margin-left: auto; border: 1px solid #9eb2c2; border-radius: 5px; background: #fff; color: #294b68; font: inherit; font-size: 13px; white-space: nowrap; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-insight:hover { background: #edf1f5; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-insight:focus-visible { outline: 2px solid #147ba8; outline-offset: 2px; }
+  .workshop-history-c1:not(.workshop-approval-c1) .whc-mobile-note { grid-column: 1 / -1; margin: 0; font-size: 12px; line-height: 1.6; color: #657586; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+@media (max-width: 600px) {
+  .whc-mobile-history .whc-status.pending { background: #fff4c6; color: #854d0e; }
+  .whc-mobile-history .whc-status.approved { background: #e5f5e9; color: #27663d; }
+  .whc-mobile-history .whc-status.rejected { background: #fde9e9; color: #a32935; }
+  .whc-mobile-history .whc-mobile-buttons { display: flex; gap: 6px; margin-left: auto; }
+  .whc-mobile-history .whc-mobile-more { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; border: 1px solid #9eb2c2; border-radius: 5px; background: #fff; color: #294b68; }
+  .whc-mobile-history .whc-mobile-more:focus-visible { outline: 2px solid #147ba8; outline-offset: 2px; }
+  .whc-mobile-history .whc-mobile-actions, .whc-mobile-history .whc-mobile-confirm { grid-column: 1 / -1; min-width: 0; padding-top: 8px; border-top: 1px solid #dce4eb; }
+  .whc-mobile-history .whc-extra-actions { justify-content: flex-start; }
+  .whc-mobile-history .whc-extra-actions button, .whc-mobile-history .whc-delete-confirm button { min-height: 40px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .whc-mobile-history .whc-mobile-confirm p { overflow-wrap: anywhere; }
+}

@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import Icon from './Icon'
+import WorkshopHistoryMobileCards from './WorkshopHistoryMobileCards'
 import { documentDate } from '../lib/expenseDocument'
 import { planRange } from '../lib/workshopCalendar'
 import { approvalGroup, WORKSHOP_STATUS } from '../lib/workshopRequest'
@@ -78,7 +79,7 @@ function ApprovalMobileCards({ month, onSelect }) {
 }
 function MonthTable({ month, countMode, ...rowProps }) {
   const groups = countMode === 'requests' ? [GROUPS[1], GROUPS[0], GROUPS[2]] : GROUPS
-  return <>{countMode === 'requests' && <ApprovalMobileCards month={month} onSelect={rowProps.onSelect}/>}<div className="whc-table-scroll" role="region" aria-label={`รายการเดือน${month.label}`} tabIndex={0}><table className="whc-table workshop-history-table">
+  return <>{countMode === 'requests' && <ApprovalMobileCards month={month} onSelect={rowProps.onSelect}/>}{countMode === 'stores' && <WorkshopHistoryMobileCards month={month} {...rowProps}/>}<div className="whc-table-scroll" role="region" aria-label={`รายการเดือน${month.label}`} tabIndex={0}><table className="whc-table workshop-history-table">
     <colgroup><col style={{width:'41%'}}/><col style={{width:'20%'}}/><col style={{width:'24%'}}/><col style={{width:'15%'}}/></colgroup>
     <thead><tr><th scope="col">เลขที่คำขอ / ร้านค้า</th><th scope="col">วันจัดงาน</th><th scope="col">สถานะ</th><th scope="col"><span className="expense-sr-only">การดำเนินการ</span></th></tr></thead>
     {groups.filter(group => month[group.key].length).map(group => {
