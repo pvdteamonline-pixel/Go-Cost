@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import Icon from './Icon'
 import { documentDate } from '../lib/expenseDocument'
+import { planRange } from '../lib/workshopCalendar'
 import { approvalGroup, WORKSHOP_STATUS } from '../lib/workshopRequest'
 import { workshopStoreSummary } from '../lib/workshopHistory'
 
@@ -43,9 +44,41 @@ function PlanRow({ plan, onSelect, hasActions, renderActions, confirmingDeleteId
   </>
 }
 
+function ApprovalMobileCards({ month, onSelect }) {
+  const plans = [...month.pending, ...month.approved, ...month.other]
+  return <ul className="whc-mobile-approval" aria-label={`รายการอนุมัติเดือน${month.label}`}>
+    {plans.map(plan => {
+      const group = approvalGroup(plan.status)
+      const status = WORKSHOP_STATUS[plan.status] || 'ไม่ทราบสถานะ'
+      const tone = plan.status === 'rejected' ? 'rejected' : group
+      const label = group === 'approved' ? 'อนุมัติแล้ว' : plan.status === 'rejected' ? 'ปฏิเสธ' : status
+      const substatus = group === 'approved' ? status.split(' · ')[1] : null
+      const range = planRange(plan), endDate = plan.request_details?.end_date
+      let date = documentDate(plan.planned_date)
+      if (range && range.end > range.start) {
+        date = plan.planned_date.slice(0, 7) === endDate.slice(0, 7)
+          ? `${plan.planned_date.slice(8)}–${documentDate(endDate)}`
+          : `${date} – ${documentDate(endDate)}`
+      }
+      return <li className="whc-approval-card" key={plan.id}>
+        <div className="whc-mobile-identity">
+          <strong className="whc-mobile-store">{plan.store_name || plan.request_details?.party_name || 'ไม่ระบุร้าน'}</strong>
+          <span className="whc-mobile-id">{plan.id}</span>
+        </div>
+        <span className={`whc-status ${tone}`}>{label}</span>
+        {substatus && <small className="whc-mobile-substatus">{substatus}</small>}
+        <div className="whc-mobile-bottom">
+          <span className="whc-mobile-date" aria-label={`วันจัดงาน ${date}`}><Icon name="calendar" size={17}/><span>{date}</span></span>
+          <button className="whc-mobile-insight" aria-label={`Insight ${plan.id}`} onClick={() => onSelect(plan)}><Icon name="eye" size={17}/>Insight</button>
+        </div>
+        {plan.status === 'rejected' && plan.admin_note && <p className="whc-mobile-note">{plan.admin_note}</p>}
+      </li>
+    })}
+  </ul>
+}
 function MonthTable({ month, countMode, ...rowProps }) {
   const groups = countMode === 'requests' ? [GROUPS[1], GROUPS[0], GROUPS[2]] : GROUPS
-  return <div className="whc-table-scroll" role="region" aria-label={`รายการเดือน${month.label}`} tabIndex={0}><table className="whc-table workshop-history-table">
+  return <>{countMode === 'requests' && <ApprovalMobileCards month={month} onSelect={rowProps.onSelect}/>}<div className="whc-table-scroll" role="region" aria-label={`รายการเดือน${month.label}`} tabIndex={0}><table className="whc-table workshop-history-table">
     <colgroup><col style={{width:'41%'}}/><col style={{width:'20%'}}/><col style={{width:'24%'}}/><col style={{width:'15%'}}/></colgroup>
     <thead><tr><th scope="col">เลขที่คำขอ / ร้านค้า</th><th scope="col">วันจัดงาน</th><th scope="col">สถานะ</th><th scope="col"><span className="expense-sr-only">การดำเนินการ</span></th></tr></thead>
     {groups.filter(group => month[group.key].length).map(group => {
@@ -55,7 +88,7 @@ function MonthTable({ month, countMode, ...rowProps }) {
         {rows.map(plan => <PlanRow key={plan.id} plan={plan} approvalColors={countMode === 'requests'} {...rowProps}/>) }
       </tbody>
     })}
-  </table></div>
+  </table></div></>
 }
 
 export default function WorkshopHistoryTree({ years, countMode = 'stores', ...rowProps }) {
