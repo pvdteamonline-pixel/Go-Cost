@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icon'
 import ThaiMonthSelect from './ThaiMonthSelect'
 import ExpenseInsight from './ExpenseInsight'
@@ -11,6 +11,12 @@ const typeTone = type => ['blue', 'purple', 'green', 'teal'][WORKSHOP_TYPES.inde
 const party = plan => plan.request_details?.party_name || plan.store_name || 'ไม่ระบุร้าน'
 const eventType = plan => plan.request_details?.event_type || 'Workshop'
 const planTitle = plan => `${party(plan)} · ${eventType(plan)}`
+function planTime(plan) {
+  const details = plan.request_details
+  if (!details?.start_time || !details?.end_time) return 'ไม่ระบุเวลา'
+  const daily = details.end_date && details.end_date > plan.planned_date
+  return `${details.start_time}–${details.end_time}${daily ? ' ทุกวัน' : ''}`
+}
 const shortMonth = new Intl.DateTimeFormat('th-TH', { month: 'short', timeZone: 'UTC' })
 function barDates(plan) {
   const start = plan.planned_date, end = plan.request_details?.end_date
@@ -24,12 +30,28 @@ const document = plan => ({ ...plan, type: 'Workshop', docNo: plan.id, storeName
 export default function WorkshopCalendar({ plans, people, loading, error, peopleError, month, onMonthChange, selectedDate, onDateChange, onCreate, onRefresh }) {
   const [search, setSearch] = useState(''), [proposer, setProposer] = useState(''), [role, setRole] = useState(''), [type, setType] = useState('')
   const [insight, setInsight] = useState(null)
-  const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 600px)').matches)
-  useEffect(() => {
-    const query = window.matchMedia('(max-width: 600px)')
-    const change = () => setMobile(query.matches)
-    query.addEventListener('change', change)
-    return () => query.removeEventListener('change', change)
+  const gridRef = useRef(null), legendRef = useRef(null)
+  const [scheduleHeight, setScheduleHeight] = useState(480)
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    const measure = () => {
+      // Document position stays stable while scrolling. Data never determines row height.
+      const top = grid.getBoundingClientRect().top + window.scrollY
+      const viewport = window.visualViewport?.height || window.innerHeight
+      const legend = legendRef.current?.offsetHeight || 24
+      setScheduleHeight(Math.max(180, Math.floor(viewport - top - legend - 40)))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(grid.parentElement)
+    observer.observe(legendRef.current)
+    window.addEventListener('resize', measure)
+    window.visualViewport?.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+      window.visualViewport?.removeEventListener('resize', measure)
+    }
   }, [])
   const peopleById = useMemo(() => new Map(people.map(person => [person.id, person])), [people])
   const proposers = useMemo(() => [...new Set(plans.map(plan => plan.created_by).filter(Boolean))].map(id => ({ id, name: peopleById.get(id)?.name || id, role: peopleById.get(id)?.role || '' })).sort((a, b) => a.name.localeCompare(b.name, 'th')), [plans, peopleById])
@@ -41,11 +63,15 @@ export default function WorkshopCalendar({ plans, people, loading, error, people
   const weeks = useMemo(() => calendarWeeks(month, visible), [month, visible])
   const dayPlans = plansOnDate(visible, selectedDate)
   const invalidCount = visible.filter(plan => !planRange(plan)).length
-  const today = todayInBangkok(), maxLanes = mobile ? 1 : 3
+  const rowHeight = Math.max(74, (scheduleHeight - 38) / weeks.length)
+  const compact = rowHeight < 104
+  const eventTop = compact ? 28 : 32, eventHeight = compact ? 24 : 48
+  const maxLanes = Math.max(1, Math.min(3, Math.floor((rowHeight - eventTop - 22 + 7) / (eventHeight + 7))))
+  const today = todayInBangkok()
   const openDate = date => { onDateChange(date); if (!date.startsWith(month)) onMonthChange(date.slice(0, 7)) }
   const selectMonth = value => { onMonthChange(value); onDateChange('') }
   const creator = plan => peopleById.get(plan.created_by)?.name || plan.created_by || 'ไม่ระบุผู้เสนอ'
-  const describe = plan => `${planTitle(plan)} · ${thaiDate(plan.planned_date)}${plan.request_details?.end_date && plan.request_details.end_date !== plan.planned_date ? ' ถึง ' + thaiDate(plan.request_details.end_date) : ''} · ${WORKSHOP_STATUS[plan.status] || plan.status} · ผู้เสนอ ${creator(plan)}`
+  const describe = plan => `${planTitle(plan)} · ${thaiDate(plan.planned_date)}${plan.request_details?.end_date && plan.request_details.end_date !== plan.planned_date ? ' ถึง ' + thaiDate(plan.request_details.end_date) : ''} · ${planTime(plan)} · ${WORKSHOP_STATUS[plan.status] || plan.status} · ผู้เสนอ ${creator(plan)}`
 
   return <section className="gc-calendar" aria-label="ปฏิทินแผนงาน Workshop" aria-busy={loading}>
     <div className="gc-toolbar">
@@ -67,21 +93,21 @@ export default function WorkshopCalendar({ plans, people, loading, error, people
     {peopleError && <p role="alert" className="expense-alert">{peopleError} · แสดงรหัสผู้เสนอแทนชื่อชั่วคราว</p>}
     {invalidCount > 0 && <p role="alert" className="expense-alert">มี {invalidCount} คำขอที่วันที่ไม่ถูกต้อง จึงไม่วางบนปฏิทิน กรุณาตรวจในประวัติ Workshop</p>}
     {loading && <p role="status" className="gc-load">กำลังโหลดแผนงาน…</p>}
-    <div className="gc-grid" aria-label={monthLabel(month)} style={{ '--week-count': weeks.length }}>
+    <div ref={gridRef} className={`gc-grid gc-fit ${compact ? 'gc-compact' : ''}`} aria-label={monthLabel(month)} style={{ '--week-count': weeks.length, '--schedule-height': `${scheduleHeight}px`, '--event-top': `${eventTop}px`, '--event-height': `${eventHeight}px` }}>
       <div className="gc-weekdays">{['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'].map(day => <div key={day}>{day}</div>)}</div>
       {weeks.map(week => <div key={week.start} className="gc-week" style={{ '--event-lanes': maxLanes }}>
         <div className="gc-days">{week.days.map(date => <div key={date} className={`gc-day ${date.startsWith(month) ? '' : 'outside'} ${selectedDate === date ? 'selected' : ''}`} data-date={date} onClick={event => { if (event.target === event.currentTarget) openDate(date) }}>
           <button className="gc-day-target" aria-label={`เลือกวันที่ ${thaiDate(date)}`} aria-pressed={selectedDate === date} onClick={() => openDate(date)}><span className={date === today ? 'gc-today' : ''}>{Number(date.slice(-2))}</span></button>
           {selectedDate === date && <button className="gc-day-create" aria-label={`สร้างแผนงานวันที่ ${thaiDate(date)}`} onClick={() => onCreate(date)}><Icon name="plus" size={14}/><span>สร้างแผนงาน</span></button>}
         </div>)}</div>
-        <div className="gc-events">{week.segments.filter(segment => segment.lane < maxLanes).map(segment => <button key={segment.plan.id} className={`gc-event ${typeTone(eventType(segment.plan))} ${segment.before ? 'continues-before' : ''} ${segment.after ? 'continues-after' : ''}`} style={{ gridColumn: `${segment.from + 1} / span ${segment.span}`, gridRow: segment.lane + 1 }} title={describe(segment.plan)} aria-label={describe(segment.plan)} data-plan={segment.plan.id} onClick={() => setInsight(document(segment.plan))}><span>{segment.before ? '‹ ' : ''}{planTitle(segment.plan)}{barDates(segment.plan)}{segment.after ? ' ›' : ''}</span></button>)}</div>
+        <div className="gc-events">{week.segments.filter(segment => segment.lane < maxLanes).map(segment => <button key={segment.plan.id} className={`gc-event ${typeTone(eventType(segment.plan))} ${segment.before ? 'continues-before' : ''} ${segment.after ? 'continues-after' : ''}`} style={{ gridColumn: `${segment.from + 1} / span ${segment.span}`, gridRow: segment.lane + 1 }} title={describe(segment.plan)} aria-label={describe(segment.plan)} data-plan={segment.plan.id} onClick={() => setInsight(document(segment.plan))}><span>{segment.before ? '‹ ' : ''}{planTitle(segment.plan)}{barDates(segment.plan)}{segment.after ? ' ›' : ''}</span><span className="gc-event-time">{planTime(segment.plan)}</span></button>)}</div>
         <div className="gc-more-row">{week.days.map((date, index) => {
           const extra = week.segments.filter(segment => segment.lane >= maxLanes && segment.from <= index && segment.from + segment.span > index).length
           return <div key={date}>{extra > 0 && <button aria-label={`ดูอีก ${extra} แผนงาน วันที่ ${thaiDate(date)}`} onClick={() => openDate(date)}>อีก {extra}<span> แผนงาน</span></button>}</div>
         })}</div>
       </div>)}
     </div>
-    <div className="gc-legend">{WORKSHOP_TYPES.map(value => <span key={value}><i className={typeTone(value)}/>{value}</span>)}</div>
+    <div ref={legendRef} className="gc-legend">{WORKSHOP_TYPES.map(value => <span key={value}><i className={typeTone(value)}/>{value}</span>)}</div>
     {!loading && !error && !weeks.some(week => week.segments.length) && <p className="gc-empty">ไม่พบแผนงานในเดือนนี้ตามตัวกรอง</p>}
     {selectedDate && <section className="gc-selected" aria-label="แผนงานวันที่เลือก"><h2>{thaiDate(selectedDate)} <small>{dayPlans.length} แผนงาน</small></h2>
       {dayPlans.map(plan => <button key={plan.id} className="gc-plan-row" onClick={() => setInsight(document(plan))}><strong>{planTitle(plan)}</strong><span>{plan.request_details?.start_time ? `${plan.request_details.start_time}–${plan.request_details.end_time}` : 'ไม่ระบุเวลา'} · {creator(plan)}</span><small>{WORKSHOP_STATUS[plan.status] || plan.status}</small></button>)}
